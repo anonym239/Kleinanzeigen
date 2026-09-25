@@ -377,7 +377,9 @@ function renderCats() {
   const f = S.filters;
   const counts = {};
   for (const ev of S.events) if (passesBase(ev, f, true)) counts[ev.category] = (counts[ev.category] || 0) + 1;
-  $("#catChips").innerHTML = Object.entries(S.categories).map(([key, label]) => `
+  $("#catChips").innerHTML = Object.entries(S.categories)
+    .filter(([key]) => counts[key] || f.cats.includes(key) || key !== "sonstiges")
+    .map(([key, label]) => `
     <button type="button" class="cat-chip" style="--cat: var(--c-${key})" data-cat="${key}" aria-pressed="${f.cats.includes(key)}">
       <span class="dot"></span>${esc(label)} <span class="n">${counts[key] || 0}</span>
     </button>`).join("");
@@ -443,7 +445,8 @@ function initMap() {
   }).addTo(S.map);
   S.mapLayer = L.layerGroup().addTo(S.map);
   S.map.setView([51.16, 10.45], 6);
-  renderMap(filtered(), true);
+  // Erst zeichnen, wenn der Kartenbereich seine endgültige Größe hat
+  setTimeout(() => { S.map.invalidateSize(); renderMap(filtered(), true); }, 120);
 }
 
 function renderMap(list, fit = true) {

@@ -68,6 +68,7 @@ DEFAULT_SETTINGS = {
         "Wohnungsauflösung", "Nachlass Verkauf", "Trödelmarkt", "Kinderflohmarkt",
     ],
     "kleinanzeigen_enabled": True,
+    "calendars_enabled": True,  # Flohmarkt-Terminkalender (krencky24.de / meine-flohmarkt-termine.de)
     "kleinanzeigen_pages": 2,
     "detail_fetch_limit": 40,
     "extra_urls": [],          # Webseiten mit Veranstaltungskalender (schema.org/Event)
@@ -200,7 +201,35 @@ def list_events(undated_max_age_days: int = 21) -> list[dict]:
             "ORDER BY e.start_date IS NULL, e.start_date, e.first_seen DESC",
             ((today - timedelta(days=1)).isoformat(), min_seen),
         ).fetchall()
-    return [dict(r) for r in rows]
+    return dedupe([dict(r) for r in rows])
+
+
+def _norm_title(t: str) -> str:
+    import re
+    t = re.sub(r"[^a-z0-9äöüß]+", " ", (t or "").lower())
+    return re.sub(r"\b(der|die|das|in|im|am|an|auf|und|mit|von)\b", " ", t).split().__str__()[:60]
+
+
+def dedupe(events: list[dict]) -> list[dict]:
+    """Derselbe Termin steht oft auf mehreren Kalender-Seiten – nur einmal zeigen.
+
+    Gleich = gleicher Tag und gleicher (normalisierter) Titel; Favoriten/Notizen haben Vorrang.
+    """
+    seen: dict[tuple, int] = {}
+    out: list[dict] = []
+    for e in events:
+        if not e.get("start_date") or e.get("source") == "kleinanzeigen" or e.get("manual"):
+            out.append(e)
+            continue
+        key = (e["start_date"], _norm_title(e["title"]))
+        if key in seen:
+            prev = out[seen[key]]
+            if (e.get("favorite") or e.get("note")) and not (prev.get("favorite") or prev.get("note")):
+                out[seen[key]] = e
+            continue
+        seen[key] = len(out)
+        out.append(e)
+    return out
 
 
 def set_user_state(event_id: str, **values) -> dict:

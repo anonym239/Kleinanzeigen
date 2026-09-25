@@ -56,7 +56,8 @@ def test_parse_detail_page():
 def test_search_url():
     assert kleinanzeigen.search_url("Haushaltsauflösung", "945", "Köln", 30, 1) == \
         "https://www.kleinanzeigen.de/s-k%C3%B6ln/haushaltsaufl%C3%B6sung/k0l945r30"
-    assert kleinanzeigen.search_url("Flohmarkt", "945", "50667 Köln", 30, 2).endswith("/s-k%C3%B6ln/seite:2/flohmarkt/k0l945r30")
+    assert kleinanzeigen.search_url("Flohmarkt", "983", "50667 Köln Altstadt", 50, 2) == \
+        "https://www.kleinanzeigen.de/s-50667/seite:2/flohmarkt/k0l983r50"
     assert kleinanzeigen.search_url("Flohmarkt", None, "", 30, 1) == "https://www.kleinanzeigen.de/s-flohmarkt/k0"
     assert kleinanzeigen.snap_radius(25) == 30 and kleinanzeigen.snap_radius(999) == 200
 
@@ -124,3 +125,38 @@ def test_event_vs_single_item():
     assert not is_event_ad("Samsung Handy", "", "120 €")
     assert not is_event_ad("Stuhl wegen Wohnungsauflösung", "Abholung Samstag", "15 €", True)
     assert not is_event_ad("Flohmarkt Paket Kinderkleidung Gr. 104", "", "10 €")
+
+
+def test_parse_search_page_2026_layout():
+    from pathlib import Path
+    html = (Path(__file__).parent / "fixtures" / "ka_search_2026.html").read_text()
+    ads = kleinanzeigen.parse_search_page(html)
+    assert [a["ad_id"] for a in ads] == ["3523053040", "3522937507", "3522876143"]
+    a, b, c = ads
+    assert a["title"] == "Trödel Flohmarkt Konvolut Haushalt Deko Zeitschaltuhr"
+    assert a["location"] == "58511 Lüdenscheid"
+    assert a["posted_raw"] == "Heute, 19:33"
+    assert a["price"] == "10 €"
+    assert a["image"].startswith("https://img.kleinanzeigen.de/")
+    assert b["url"].endswith("/s-anzeige/flohmarkt-verschiedenes/3522937507-250-18697")
+    assert b["price"] == "VB" and b["location"] == "51067 Köln Holweide"
+    assert "Am Sonntag ist Stadtteil Flohmarkt" in c["description"]
+
+
+def test_real_ads_relevance():
+    """Echte Anzeigen aus Köln (Sept. 2026): nur der Stadtteil-Flohmarkt ist ein Termin."""
+    from pathlib import Path
+
+    from app.classify import is_event_ad
+    from app.dateparse import parse_event_date, parse_time_text
+    html = (Path(__file__).parent / "fixtures" / "ka_search_2026.html").read_text()
+    verdict = {}
+    for ad in kleinanzeigen.parse_search_page(html):
+        text = f"{ad['title']} {ad['description']}"
+        verdict[ad["title"]] = is_event_ad(ad["title"], ad["description"], ad["price"],
+                                           bool(parse_event_date(text, date(2026, 9, 25))), bool(parse_time_text(text)))
+    assert verdict == {
+        "Trödel Flohmarkt Konvolut Haushalt Deko Zeitschaltuhr": False,
+        "Flohmarkt verschiedenes": False,
+        "Flohmarkt am Küllenhahn": True,
+    }

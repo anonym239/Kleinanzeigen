@@ -1,0 +1,25 @@
+{
+  "_hinweis": "Suchgebiet: Postleitzahl (oder Ort) und Umkreis in km. Nach dem Speichern sucht GitHub automatisch neu (dauert ca. 5-10 Minuten).",
+  "home": "50667",
+  "radius_km": 50,
+  "days_ahead": 14,
+  "search_terms": [
+    "Haushaltsauflösung",
+    "Wohnungsauflösung",
+    "Hausauflösung",
+    "Nachlass Verkauf",
+    "Flohmarkt",
+    "Hofflohmarkt",
+    "Garagenflohmarkt",
+    "Trödelmarkt",
+    "Kinderflohmarkt",
+    "Kinderbasar"
+  ],
+  "kleinanzeigen_pages": 3,
+  "detail_fetch_limit": 80,
+  "calendars_enabled": true,
+  "_hinweis_extra_urls": "Weitere Terminkalender (schema.org-Events oder .ics). KÄNGURU = Kinderflohmärkte Köln/Bonn.",
+  "extra_urls": [
+    "https://www.kaenguru-online.de/kalender/maerkte"
+  ]
+}

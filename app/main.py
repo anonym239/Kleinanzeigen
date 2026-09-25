@@ -236,6 +236,7 @@ class SettingsIn(BaseModel):
     refresh_hours: float | None = Field(default=None, ge=0.5, le=48)
     search_terms: list[str] | None = None
     kleinanzeigen_enabled: bool | None = None
+    calendars_enabled: bool | None = None
     kleinanzeigen_pages: int | None = Field(default=None, ge=1, le=5)
     detail_fetch_limit: int | None = Field(default=None, ge=0, le=200)
     extra_urls: list[str] | None = None

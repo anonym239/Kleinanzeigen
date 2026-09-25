@@ -7,7 +7,7 @@ Die App läuft auf dem eigenen Homeserver und ist auf dem Handy und am PC gut be
 
 - **Zeitraum mit einem Tipp**: Heute · Dieses Wochenende · Nächstes Wochenende · Nächste 14 Tage · Alle
 - **Nur Samstag & Sonntag** als zusätzlicher Filter
-- **Umkreis-Filter** um den eigenen Wohnort (PLZ oder Ort), mit Entfernung in km bei jedem Termin
+- **Umkreis-Filter** (Standard 50 km) um den eigenen Wohnort (PLZ oder Ort), mit Entfernung in km; innerhalb eines Tages steht das Nächstgelegene oben
 - **Kategorien** mit Farben: Flohmarkt, Hof- & Garagenflohmarkt, Haushaltsauflösung, Kinder & Basar, Trödel- & Antikmarkt
 - **Suche** im Text, z.B. „Werkzeug“ oder „Schallplatten“
 - **Firmen-Werbung ausblenden**: Anzeigen von Entrümpelungsfirmen, Ankäufern und Gesuchen werden erkannt und standardmäßig versteckt
@@ -23,24 +23,46 @@ Die App läuft auf dem eigenen Homeserver und ist auf dem Handy und am PC gut be
 
 ## Woher kommen die Termine?
 
-1. **Kleinanzeigen.de**: Die App ruft die normale Suchseite für die Suchbegriffe auf (Flohmarkt, Hofflohmarkt,
-   Haushaltsauflösung usw.) und liest die Anzeigen aus. Da Kleinanzeigen kein Veranstaltungsdatum kennt,
-   **erkennt die App das Datum im Text**, z.B. „Sa. 27.09. 10–16 Uhr“, „3. und 4. Oktober“ oder „diesen Samstag“.
-   Anzeigen ohne erkennbares Datum erscheinen unten unter „Ohne erkanntes Datum“.
-2. **Weitere Webseiten** (in den Einstellungen eintragbar): Veranstaltungskalender von Stadt, Kirchengemeinde,
-   Veranstaltern usw., wenn sie ihre Termine als *schema.org-Event* anbieten, und iCal-Adressen (`.ics`).
-3. **Eigene Einträge** über den Knopf „Termin eintragen“.
+| Quelle | Was | Wie |
+|---|---|---|
+| **Kleinanzeigen.de** (früher eBay Kleinanzeigen) | Haushaltsauflösungen, Hof- und Garagenflohmärkte von Privatleuten | normale Suchseite im Umkreis, Datum wird aus dem Anzeigentext erkannt |
+| **krencky24.de** / **meine-flohmarkt-termine.de** | Floh-, Trödel-, Antik- und Kinderflohmärkte mit festem Termin | Terminkalender der PLZ-Gebiete im Umkreis |
+| **KÄNGURU** (nur Region Köln/Bonn) | Kinderflohmärkte und Basare | Terminkalender |
+| **eigene Einträge** | z.B. aus der Zeitung | Knopf „Termin eintragen“ |
 
-Die Umrechnung von Orten in Koordinaten (für Entfernung und Karte) läuft über OpenStreetMap Nominatim. Das ist kostenlos
-und braucht keinen Key. Die Ergebnisse werden gespeichert, damit jede Adresse nur einmal abgefragt wird.
+Alles ohne API-Key und kostenlos. **Einzelartikel werden aussortiert**: Anzeigen wie „Vase aus Haushaltsauflösung 5 €“,
+„Trödel Flohmarkt Konvolut 10 €“ oder „iPhone wegen Umzug“ erscheinen nicht, nur echte Termine/Verkäufe vor Ort.
+Werbung von Entrümpelungsfirmen und Ankäufern ist standardmäßig ausgeblendet (Filter „Firmen-Werbung“).
 
-> Hinweis: Die App liest öffentliche Webseiten wie ein Browser, mit Pausen zwischen den Abrufen.
-> Wenn Kleinanzeigen etwas an seiner Seite ändert, muss eventuell `app/sources/kleinanzeigen.py` angepasst werden.
-> Ob die letzte Suche geklappt hat, steht unter Einstellungen → „Zustand der Quellen“.
+Auf **eBay.de** selbst gibt es keine Haushaltsauflösungs-Termine, nur einzelne Artikel. Deshalb wird eBay nicht durchsucht.
+markt.de lädt seine Anzeigen erst im Browser per JavaScript nach und lässt sich deshalb nicht einfach auslesen.
 
-## Installation auf dem Homeserver
+## Variante 1: Ohne eigenen Server (GitHub Pages, empfohlen)
 
-### Mit Docker (empfohlen)
+GitHub sucht alle 3 Stunden automatisch nach neuen Terminen und veröffentlicht die Webseite. Das ist kostenlos, und man
+braucht keinen eigenen Computer, der läuft.
+
+**Einmalig einrichten:**
+
+1. Auf GitHub im Repository: **Settings → Pages → Build and deployment → Source: „GitHub Actions“** auswählen.
+2. Die Datei **`config.json`** öffnen (auf GitHub mit dem Stift-Symbol bearbeiten) und bei `"home"` die eigene
+   **Postleitzahl** eintragen, bei `"radius_km"` den Umkreis (z.B. `50`). Speichern („Commit changes“).
+3. Nach ca. 5–10 Minuten ist die Seite erreichbar unter:
+   **https://anonym239.github.io/Kleinanzeigen/**
+
+Die Seite dann auf dem Handy öffnen und über „Zum Startbildschirm hinzufügen“ wie eine App ablegen.
+Favoriten, Notizen und eigene Termine speichert das jeweilige Gerät (Handy und PC getrennt).
+Den Wohnort für die Entfernungsberechnung kann man in der Seite unter „Einstellungen“ ändern;
+das **Suchgebiet** selbst legt die `config.json` fest.
+
+Ob die letzte Suche geklappt hat, steht unter Einstellungen → „Zustand der Quellen“ oder auf GitHub unter **Actions**.
+Eine Suche sofort starten: **Actions → „Termine suchen & Webseite veröffentlichen“ → „Run workflow“**.
+
+> Hinweis: Die Suche läuft nach Zeitplan nur auf dem Standard-Branch des Repositories.
+
+## Variante 2: Auf dem eigenen Homeserver
+
+### Mit Docker
 
 ```bash
 git clone <dieses Repository> flohmarkt-finder
@@ -88,6 +110,9 @@ Aufbau:
 | `app/scraper.py` | Regelmäßige Suche in allen Quellen |
 | `app/sources/kleinanzeigen.py` | Liest Kleinanzeigen-Suchergebnisse und Detailseiten |
 | `app/sources/events_page.py` | Liest schema.org-Events und iCal-Kalender von beliebigen Webseiten |
+| `app/sources/calendars.py` | Flohmarkt-Terminkalender nach PLZ-Gebiet (krencky24.de, meine-flohmarkt-termine.de) |
+| `app/build_site.py` | Sucht und baut die statische Webseite für GitHub Pages |
+| `.github/workflows/site.yml` | Automatische Suche alle 3 Stunden + Veröffentlichung |
 | `app/dateparse.py` | Erkennt Datum und Uhrzeit in deutschem Text |
 | `app/classify.py` | Ordnet Kategorien zu und erkennt Firmen-Werbung |
 | `app/geo.py` | Orte in Koordinaten umrechnen, Entfernung berechnen |

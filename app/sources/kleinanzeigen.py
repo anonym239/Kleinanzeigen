@@ -1,6 +1,7 @@
 """Liest Suchergebnisse von kleinanzeigen.de (öffentliche Webseite, kein API-Key nötig)."""
 from __future__ import annotations
 
+import json
 import logging
 import re
 from datetime import date
@@ -52,44 +53,79 @@ def find_location_id(client: httpx.Client, query: str) -> tuple[str, str] | None
 def search_url(term: str, location_id: str | None, location_name: str, radius: int, page: int) -> str:
     page_part = f"seite:{page}/" if page > 1 else ""
     if location_id:
-        loc = _slug(re.sub(r"^\d{5}\s*", "", location_name) or location_name) or "ort"
+        m = re.match(r"(\d{5})", location_name)
+        loc = m.group(1) if m else (_slug(location_name) or "ort")
         return f"{BASE}/s-{loc}/{page_part}{_slug(term)}/k0l{location_id}r{radius}"
     return f"{BASE}/s-{page_part}{_slug(term)}/k0"
 
 
+_POSTED_RE = re.compile(r"^(heute|gestern)\b.*|^\d{1,2}\.\d{1,2}\.\d{4}$", re.I)
+_PRICE_RE = re.compile(r"(€|^VB$|verschenken|^Tausch)", re.I)
+_LOC_RE = re.compile(r"^\d{5}\s+\S")
+
+
+def _article_json(art) -> dict:
+    tag = art.find("script", type="application/ld+json")
+    if tag is None:
+        return {}
+    try:
+        data = json.loads(tag.string or tag.get_text() or "{}")
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def parse_search_page(html: str) -> list[dict]:
-    """Zerlegt eine Suchergebnisseite in einzelne Anzeigen."""
+    """Zerlegt eine Suchergebnisseite in einzelne Anzeigen.
+
+    Aufbau (Stand 2026): <article data-adid data-href> mit einem JSON-LD-Block (Titel, Text, Bild)
+    und Textzeilen für Ort ("50667 Köln Altstadt"), Einstelldatum ("Heute, 19:33") und Preis ("10 €").
+    Der ältere Aufbau mit .aditem-Klassen wird weiterhin unterstützt.
+    """
     soup = BeautifulSoup(html, "html.parser")
     ads = []
-    for art in soup.select("article.aditem"):
+    for art in soup.select("article[data-adid]"):
         ad_id = art.get("data-adid")
-        href = art.get("data-href")
-        title_a = art.select_one("h2 a, .text-module-begin a, a.ellipsis")
-        if not ad_id or not title_a:
+        ld = _article_json(art)
+        title_el = art.select_one("h2 a, h3 a, h2 [data-url], h3 [data-url], .text-module-begin a, a.ellipsis")
+        title = _clean(ld.get("title")) or (_clean(title_el.get_text()) if title_el else "")
+        href = art.get("data-href") or (title_el.get("href") or title_el.get("data-url") if title_el else "")
+        if not ad_id or not title or not href:
             continue
-        href = href or title_a.get("href", "")
-        img = art.select_one(".imagebox img, img")
-        image = ""
-        if img is not None:
+        for s in art.find_all(["script", "svg", "style"]):
+            s.decompose()
+        parts = [_clean(x) for x in art.stripped_strings]
+        parts = [p for p in parts if p]
+
+        loc_el = art.select_one(".aditem-main--top--left")
+        date_el = art.select_one(".aditem-main--top--right")
+        desc_el = art.select_one(".aditem-main--middle--description") or art.select_one("h2 ~ p, h3 ~ p")
+        price_el = art.select_one(".aditem-main--middle--price-shipping--price, .aditem-main--middle--price")
+        location = _clean(loc_el.get_text(" ")) if loc_el else next((p for p in parts if _LOC_RE.match(p)), "")
+        location = re.sub(r"\(\s*(ca\.\s*)?\d+\s*km\s*\)", "", location).strip()
+        posted = _clean(date_el.get_text(" ")) if date_el else next((p for p in parts if _POSTED_RE.match(p)), "")
+        price = _clean(price_el.get_text(" ")) if price_el else next(
+            (p for p in reversed(parts) if _PRICE_RE.search(p) and len(p) < 30), "")
+        snippet = _clean(desc_el.get_text(" ")) if desc_el else ""
+        description = ld.get("description") or snippet
+        description = re.sub(r"[ \t]+", " ", str(description)).strip()
+
+        img = art.select_one("img")
+        image = ld.get("contentUrl") or ""
+        if not image and img is not None:
             image = img.get("src") or img.get("data-src") or ""
         if not image:
             box = art.select_one("[data-imgsrc]")
             image = box.get("data-imgsrc", "") if box else ""
-        loc_el = art.select_one(".aditem-main--top--left")
-        loc = _clean(loc_el.get_text(" ")) if loc_el else ""
-        loc = re.sub(r"\(\s*\d+\s*km\s*\)", "", loc).strip()
-        date_el = art.select_one(".aditem-main--top--right")
-        desc_el = art.select_one(".aditem-main--middle--description")
-        price_el = art.select_one(".aditem-main--middle--price-shipping--price, .aditem-main--middle--price")
         ads.append({
             "ad_id": ad_id,
             "url": urljoin(BASE, href),
-            "title": _clean(title_a.get_text()),
-            "description": _clean(desc_el.get_text(" ")) if desc_el else "",
-            "location": loc,
-            "posted_raw": _clean(date_el.get_text(" ")) if date_el else "",
-            "price": _clean(price_el.get_text(" ")) if price_el else "",
-            "image": image if image.startswith("http") else "",
+            "title": title,
+            "description": description,
+            "location": location,
+            "posted_raw": posted,
+            "price": price,
+            "image": image if str(image).startswith("http") else "",
         })
     return ads
 

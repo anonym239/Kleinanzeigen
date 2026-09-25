@@ -66,3 +66,53 @@ def geocode(location: str) -> tuple[float, float, str] | None:
         res = _query({"q": location})
     db.geocache_put(key, res)
     return res
+
+
+def reverse_postcode(lat: float, lon: float) -> str | None:
+    """Postleitzahl an einer Koordinate (Nominatim reverse, gecacht)."""
+    key = f"rev:{lat:.3f},{lon:.3f}"
+    cached = db.geocache_get(key)
+    if cached is not None:
+        return cached[2] or None
+    global _last_call
+    with _lock:
+        wait = 1.1 - (time.monotonic() - _last_call)
+        if wait > 0:
+            time.sleep(wait)
+        _last_call = time.monotonic()
+        try:
+            r = httpx.get(
+                "https://nominatim.openstreetmap.org/reverse",
+                params={"lat": lat, "lon": lon, "format": "json", "zoom": 16, "addressdetails": 1},
+                headers={"User-Agent": USER_AGENT, "Accept-Language": "de"},
+                timeout=15,
+            )
+            r.raise_for_status()
+            plz = (r.json().get("address") or {}).get("postcode")
+        except Exception as e:  # noqa: BLE001
+            log.warning("Reverse-Geokodierung fehlgeschlagen: %s", e)
+            return None
+    plz = plz if plz and re.fullmatch(r"\d{5}", plz) else None
+    db.geocache_put(key, (lat, lon, plz or ""))
+    return plz
+
+
+def plz_prefixes_near(lat: float, lon: float, radius_km: float) -> list[str]:
+    """Zweistellige PLZ-Gebiete (z.B. "50", "51", "53"), die im Umkreis liegen.
+
+    Dazu werden Punkte in 8 Richtungen auf halbem und vollem Radius abgefragt.
+    """
+    points = [(lat, lon)]
+    for frac in (0.5, 1.0):
+        d = radius_km * frac
+        for bearing in range(0, 360, 45):
+            b = math.radians(bearing)
+            dlat = d / 111.2 * math.cos(b)
+            dlon = d / (111.2 * math.cos(math.radians(lat))) * math.sin(b)
+            points.append((lat + dlat, lon + dlon))
+    prefixes: list[str] = []
+    for p in points:
+        plz = reverse_postcode(*p)
+        if plz and plz[:2] not in prefixes:
+            prefixes.append(plz[:2])
+    return prefixes

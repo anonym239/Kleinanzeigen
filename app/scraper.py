@@ -9,8 +9,8 @@ from datetime import date, timedelta
 from . import db, geo
 from .classify import _EVENT_WORDS, classify, is_event_ad, is_service_ad
 from .dateparse import parse_event_date, parse_time_text
-from .sources import events_page, kleinanzeigen
-from .sources.base import make_client
+from .sources import calendars, events_page, kleinanzeigen
+from .sources.base import SourceError, make_client
 
 log = logging.getLogger(__name__)
 
@@ -86,39 +86,81 @@ def _run_kleinanzeigen(settings: dict) -> tuple[int, int]:
     return found, new
 
 
-def _run_url(url: str) -> tuple[int, int]:
+def _store_web_item(it: dict, source: str, ev_id: str, settings: dict) -> tuple[int, int]:
+    """Speichert einen Kalender-Termin, wenn er ein Floh-/Trödel-/Kindermarkt im Umkreis ist."""
+    today = date.today()
+    horizon = today + timedelta(days=120)
+    if it["end"] < today - timedelta(days=1) or it["start"] > horizon:
+        return 0, 0
+    category = classify(it["title"], it["description"])
+    if category == "sonstiges":
+        return 0, 0  # z.B. Streetfood-Festival, Weinfest, Feierabendmarkt
+    text = f"{it['title']} {it['description']}"
+    ev = {
+        "id": ev_id,
+        "source": source,
+        "title": it["title"],
+        "description": it["description"],
+        "url": it["url"],
+        "image": it["image"],
+        "category": category,
+        "start_date": it["start"].isoformat(),
+        "end_date": it["end"].isoformat(),
+        "date_certain": 1,
+        "time_text": it["time_text"] or parse_time_text(text) or "",
+        "location": it["location"],
+        "address": it["address"],
+        "lat": it["lat"],
+        "lon": it["lon"],
+        "is_service": 0,
+        "posted_at": None,
+        "detail_fetched": 1,
+        "relevant": 1,
+    }
+    _geocode_event(ev)
+    home = (settings.get("home_lat"), settings.get("home_lon"))
+    radius = float(settings.get("radius_km") or 50)
+    if home[0] is not None and ev["lat"] is not None and geo.haversine_km(*home, ev["lat"], ev["lon"]) > radius + 5:
+        return 0, 0
+    return 1, int(db.upsert_event(ev))
+
+
+def _run_url(url: str, settings: dict) -> tuple[int, int]:
     found = new = 0
     with make_client() as client:
         items = events_page.scrape_url(client, url)
-    horizon = date.today() + timedelta(days=120)
+    name = events_page.source_name(url)
     for it in items:
-        if it["end"] < date.today() - timedelta(days=1) or it["start"] > horizon:
-            continue
-        text = f"{it['title']} {it['description']}"
-        ev = {
-            "id": f"web:{events_page.source_name(url)}:{it['ext_id']}",
-            "source": events_page.source_name(url),
-            "title": it["title"],
-            "description": it["description"],
-            "url": it["url"],
-            "image": it["image"],
-            "category": classify(it["title"], it["description"]),
-            "start_date": it["start"].isoformat(),
-            "end_date": it["end"].isoformat(),
-            "date_certain": 1,
-            "time_text": it["time_text"] or parse_time_text(text) or "",
-            "location": it["location"],
-            "address": it["address"],
-            "lat": it["lat"],
-            "lon": it["lon"],
-            "is_service": 0,
-            "posted_at": None,
-            "detail_fetched": 1,
-        }
-        _geocode_event(ev)
-        found += 1
-        new += db.upsert_event(ev)
+        f, n = _store_web_item(it, name, f"web:{name}:{it['ext_id']}", settings)
+        found, new = found + f, new + n
     return found, new
+
+
+def _run_calendars(settings: dict) -> tuple[int, int, str]:
+    if settings.get("home_lat") is None:
+        return 0, 0, "kein Wohnort"
+    prefixes = geo.plz_prefixes_near(settings["home_lat"], settings["home_lon"], float(settings.get("radius_km") or 50))
+    until = date.today() + timedelta(days=int(settings.get("days_ahead") or 14) + 7)
+    found = new = 0
+    seen: set[str] = set()
+    errors = []
+    with make_client() as client:
+        for plz in prefixes:
+            state["message"] = f"Flohmarkt-Kalender: PLZ-Gebiet {plz} …"
+            try:
+                for site, it in calendars.scrape_prefix(client, plz, until, log_msg=log.warning):
+                    key = calendars.event_key(it["url"]) or it["ext_id"]
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    f, n = _store_web_item(it, site, f"cal:{key}", settings)
+                    found, new = found + f, new + n
+            except SourceError as e:
+                errors.append(str(e))
+    msg = f"{new} neu, PLZ-Gebiete {', '.join(prefixes)}"
+    if errors:
+        msg += f" – Fehler: {'; '.join(errors)[:200]}"
+    return found, new, msg
 
 
 def run_all() -> bool:
@@ -136,11 +178,19 @@ def run_all() -> bool:
             except Exception as e:  # noqa: BLE001
                 log.exception("Kleinanzeigen fehlgeschlagen")
                 db.log_run("kleinanzeigen", t0, False, 0, str(e))
+        if settings.get("calendars_enabled", True) and settings.get("home_query"):
+            t0 = time.time()
+            try:
+                found, new, msg = _run_calendars(settings)
+                db.log_run("Flohmarkt-Kalender", t0, True, found, msg)
+            except Exception as e:  # noqa: BLE001
+                log.exception("Flohmarkt-Kalender fehlgeschlagen")
+                db.log_run("Flohmarkt-Kalender", t0, False, 0, str(e))
         for url in settings.get("extra_urls") or []:
             t0 = time.time()
             state["message"] = f"Lese {events_page.source_name(url)} …"
             try:
-                found, new = _run_url(url)
+                found, new = _run_url(url, settings)
                 db.log_run(events_page.source_name(url), t0, True, found,
                            f"{new} neu" if found else "keine Termine (schema.org/Event oder iCal) gefunden")
             except Exception as e:  # noqa: BLE001

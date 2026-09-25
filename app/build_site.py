@@ -28,6 +28,7 @@ def apply_config(cfg: dict) -> dict:
         "days_ahead": int(cfg.get("days_ahead", 14)),
         "search_terms": list(cfg.get("search_terms") or db.DEFAULT_SETTINGS["search_terms"]),
         "kleinanzeigen_enabled": bool(cfg.get("kleinanzeigen_enabled", True)),
+        "calendars_enabled": bool(cfg.get("calendars_enabled", True)),
         "kleinanzeigen_pages": int(cfg.get("kleinanzeigen_pages", 3)),
         "detail_fetch_limit": int(cfg.get("detail_fetch_limit", 80)),
         "extra_urls": list(cfg.get("extra_urls") or []),
@@ -43,8 +44,9 @@ def apply_config(cfg: dict) -> dict:
 
 def export(out: Path, settings: dict) -> int:
     out.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(STATIC, out / "static", dirs_exist_ok=True)
-    for name in ("index.html", "sw.js", "manifest.webmanifest", "icon.svg"):
+    root_files = ("index.html", "sw.js", "manifest.webmanifest", "icon.svg")
+    shutil.copytree(STATIC, out / "static", dirs_exist_ok=True, ignore=shutil.ignore_patterns(*root_files))
+    for name in root_files:
         shutil.copy(STATIC / name, out / name)
     (out / "static" / "mode.js").write_text("window.FLOHMARKT_STATIC = true;\n")
     (out / ".nojekyll").write_text("")

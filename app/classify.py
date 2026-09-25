@@ -67,12 +67,26 @@ _REASON_ONLY = re.compile(
     re.I,
 )
 _ON_SITE = re.compile(
-    r"vor ort|alles muss raus|besichtigung|termin|geöffnet|öffnungszeit|uhr\b|samstag|sonntag|wochenende|"
+    r"vor ort|alles muss raus|besichtigung|termin|geöffnet|öffnungszeit|\d\s*uhr\b|samstag|sonntag|wochenende|"
     r"verkauf findet|verkaufen wir|stände|standgebühr|aussteller|verkäufer|tür(en)? offen|kommen sie|kommt vorbei|"
-    r"schnäppchen|stöbern|alles günstig|restposten|komplett|gesamter hausstand|hausstand|inventar",
+    r"schnäppchen|stöbern|alles günstig|restposten|komplett|gesamter hausstand|hausstand|inventar|wir räumen|"
+    r"ich räume|räumen unser|kommt vorbei|vorbeikommen",
+    re.I,
+)
+# Eindeutige Veranstaltungswörter (anders als "Flohmarkt"/"Trödel", die oft nur Schlagwort für Einzelartikel sind)
+_STRONG_WORDS = re.compile(
+    r"hofflohmarkt|garagenflohmarkt|hausflohmarkt|gartenflohmarkt|straßenflohmarkt|kinderflohmarkt|nachtflohmarkt|"
+    r"hallenflohmarkt|haushaltsauflösung|haushaltsaufloesung|wohnungsauflösung|wohnungsaufloesung|hausauflösung|"
+    r"hausaufloesung|basar|bazar|trödelmarkt|troedelmarkt|antikmarkt|räumungsverkauf|garagenverkauf|hofverkauf",
     re.I,
 )
 _ITEM_PRICE = re.compile(r"^\s*\d+[\d.,]*\s*€")
+# Typische Wörter für Einzelartikel/Konvolute ("Trödel Flohmarkt Konvolut", "Flohmarkt Paket Kinderkleidung")
+_ITEM_WORDS = re.compile(
+    r"konvolut|paket|sammlung|kiste|karton|\bset\b|stück|figur|vase|geschirr|teller|tasse|lampe|handy|iphone|"
+    r"samsung|playstation|fahrrad|schrank|sofa|stuhl|tisch|kleid|jacke|schuhe|gr\.\s*\d|größe|zu verkaufen|verkaufe\b",
+    re.I,
+)
 
 
 def is_event_ad(title: str, text: str = "", price: str = "", has_date: bool = False, has_time: bool = False) -> bool:
@@ -83,8 +97,9 @@ def is_event_ad(title: str, text: str = "", price: str = "", has_date: bool = Fa
     if not in_title and not _EVENT_WORDS.search(blob):
         return False
     score = 0
-    score += 3 if in_title else 0
+    score += (3 if _STRONG_WORDS.search(t) else 2) if in_title else 0
     score -= 3 if _REASON_ONLY.search(t) else 0
+    score -= 2 if _ITEM_WORDS.search(t) else 0
     score += 2 if has_date else 0
     score += 1 if has_time else 0
     score += 1 if _ON_SITE.search(blob) else 0
