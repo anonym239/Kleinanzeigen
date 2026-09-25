@@ -26,6 +26,10 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * r * math.asin(math.sqrt(a))
 
 
+class _Temporary(Exception):
+    """Vorübergehender Fehler – Ergebnis nicht dauerhaft speichern."""
+
+
 def _query(params: dict) -> tuple[float, float, str] | None:
     global _last_call
     with _lock:  # Nominatim erlaubt max. 1 Anfrage pro Sekunde
@@ -44,7 +48,7 @@ def _query(params: dict) -> tuple[float, float, str] | None:
             data = r.json()
         except Exception as e:  # noqa: BLE001
             log.warning("Geokodierung fehlgeschlagen für %s: %s", params, e)
-            return None
+            raise _Temporary from e
     if not data:
         return None
     return float(data[0]["lat"]), float(data[0]["lon"]), data[0].get("display_name", "")
@@ -60,10 +64,13 @@ def geocode(location: str) -> tuple[float, float, str] | None:
         return cached if cached[0] is not None else None
     m = re.fullmatch(r"(\d{5})(?:\s+(.*))?", key)
     res = None
-    if m:
-        res = _query({"postalcode": m.group(1), "country": "Deutschland"})
-    if res is None:
-        res = _query({"q": location})
+    try:
+        if m:
+            res = _query({"postalcode": m.group(1), "country": "Deutschland"})
+        if res is None:
+            res = _query({"q": location})
+    except _Temporary:
+        return None
     db.geocache_put(key, res)
     return res
 

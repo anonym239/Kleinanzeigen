@@ -166,8 +166,9 @@ def scrape(
     """Liefert Roh-Anzeigen (dicts). ``needs_detail(ad)`` entscheidet, ob die Detailseite geladen wird."""
     home = settings.get("home_query") or ""
     loc = find_location_id(client, home) if home else None
-    if home and not loc:
-        log_msg(f"Ort '{home}' bei Kleinanzeigen nicht gefunden – suche deutschlandweit")
+    if not loc:
+        # Nie deutschlandweit suchen – nur im eingestellten Umkreis
+        raise SourceError(f"Ort '{home}' bei Kleinanzeigen nicht gefunden – bitte PLZ prüfen")
     radius = snap_radius(float(settings.get("radius_km") or 30))
     pages = max(1, int(settings.get("kleinanzeigen_pages") or 1))
     detail_budget = int(settings.get("detail_fetch_limit") or 0)

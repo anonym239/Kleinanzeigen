@@ -247,6 +247,14 @@ def reset_hidden() -> int:
         return c.execute("UPDATE user_state SET hidden = 0 WHERE hidden = 1").rowcount
 
 
+def delete_scraped_events() -> int:
+    """Entfernt alle gefundenen (nicht selbst eingetragenen) Termine, z.B. nach Wechsel des Suchgebiets."""
+    with connect() as c:
+        n = c.execute("DELETE FROM events WHERE manual = 0").rowcount
+        c.execute("DELETE FROM user_state WHERE event_id NOT IN (SELECT id FROM events)")
+    return n
+
+
 def delete_event(event_id: str) -> bool:
     with connect() as c:
         n = c.execute("DELETE FROM events WHERE id = ?", (event_id,)).rowcount

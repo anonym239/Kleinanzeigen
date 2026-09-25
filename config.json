@@ -1,7 +1,7 @@
 {
   "_hinweis": "Suchgebiet: Postleitzahl (oder Ort) und Umkreis in km. Nach dem Speichern sucht GitHub automatisch neu (dauert ca. 5-10 Minuten).",
-  "home": "50667",
-  "radius_km": 50,
+  "home": "24146",
+  "radius_km": 100,
   "days_ahead": 14,
   "search_terms": [
     "Haushaltsauflösung",
@@ -18,8 +18,7 @@
   "kleinanzeigen_pages": 3,
   "detail_fetch_limit": 80,
   "calendars_enabled": true,
-  "_hinweis_extra_urls": "Weitere Terminkalender (schema.org-Events oder .ics). KÄNGURU = Kinderflohmärkte Köln/Bonn.",
-  "extra_urls": [
-    "https://www.kaenguru-online.de/kalender/maerkte"
-  ]
+  "_hinweis_extra_urls": "Weitere Terminkalender (schema.org-Events oder .ics), z.B. von Stadt oder Kirchengemeinde.",
+  "extra_urls": [],
+  "_hinweis_home": "24146 = Kiel-Elmschenhagen"
 }

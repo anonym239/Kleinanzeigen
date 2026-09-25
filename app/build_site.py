@@ -33,6 +33,10 @@ def apply_config(cfg: dict) -> dict:
         "detail_fetch_limit": int(cfg.get("detail_fetch_limit", 80)),
         "extra_urls": list(cfg.get("extra_urls") or []),
     }
+    previous = db.get_settings()
+    if (previous.get("home_query"), float(previous.get("radius_km") or 0)) != (values["home_query"], values["radius_km"]):
+        removed = db.delete_scraped_events()
+        log.info("Suchgebiet geändert – %d alte Einträge entfernt", removed)
     if values["home_query"]:
         res = geo.geocode(values["home_query"])
         if res:
@@ -55,7 +59,15 @@ def export(out: Path, settings: dict) -> int:
             "date_certain", "time_text", "location", "address", "lat", "lon", "price", "is_service",
             "posted_at", "first_seen")
     events = []
+    home = (settings.get("home_lat"), settings.get("home_lon"))
+    radius = float(settings.get("radius_km") or 50)
     for e in db.list_events():
+        # Nur Termine im Umkreis veröffentlichen (ohne Koordinaten: nur Kleinanzeigen, die ja schon im Umkreis gesucht wurden)
+        if home[0] is not None and e.get("lat") is not None:
+            if geo.haversine_km(home[0], home[1], e["lat"], e["lon"]) > radius + 5:
+                continue
+        elif e.get("source") != "kleinanzeigen":
+            continue
         item = {k: e.get(k) for k in keep}
         item["description"] = (item["description"] or "")[:1500]
         item["date_certain"] = bool(item["date_certain"])
@@ -85,6 +97,15 @@ def main() -> None:
     if not args.no_scrape:
         scraper.run_all()
     n = export(Path(args.out), settings)
+    with db.connect() as c:  # Stichprobe zur Kontrolle der Filter im Log
+        for rel, label in ((1, "als Termin erkannt"), (0, "aussortiert (Einzelartikel)")):
+            rows = c.execute("SELECT title, price, start_date FROM events WHERE source='kleinanzeigen' AND relevant=? "
+                             "AND is_service=0 ORDER BY RANDOM() LIMIT 25", (rel,)).fetchall()
+            log.info("Kleinanzeigen %s – Beispiele:", label)
+            for r in rows:
+                log.info("   %-70.70s | %-10.10s | %s", r["title"], r["price"] or "", r["start_date"] or "-")
+        n = c.execute("SELECT COUNT(*) FROM events WHERE source='kleinanzeigen' AND is_service=1").fetchone()[0]
+        log.info("Kleinanzeigen Firmen-Werbung (ausgeblendet): %d", n)
     for r in db.last_runs():
         log.info("Quelle %-20s ok=%s gefunden=%s %s", r["source"], r["ok"], r["found"], r["message"])
     log.info("%d Termine exportiert nach %s", n, args.out)

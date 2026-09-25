@@ -46,7 +46,7 @@ braucht keinen eigenen Computer, der läuft.
 
 1. Auf GitHub im Repository: **Settings → Pages → Build and deployment → Source: „GitHub Actions“** auswählen.
 2. Die Datei **`config.json`** öffnen (auf GitHub mit dem Stift-Symbol bearbeiten) und bei `"home"` die eigene
-   **Postleitzahl** eintragen, bei `"radius_km"` den Umkreis (z.B. `50`). Speichern („Commit changes“).
+   **Postleitzahl** eintragen, bei `"radius_km"` den Umkreis (eingestellt: `24146` = Kiel-Elmschenhagen, `100` km). Speichern („Commit changes“).
 3. Nach ca. 5–10 Minuten ist die Seite erreichbar unter:
    **https://anonym239.github.io/Kleinanzeigen/**
 

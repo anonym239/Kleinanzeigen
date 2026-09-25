@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from datetime import date, timedelta
@@ -117,9 +118,15 @@ def _store_web_item(it: dict, source: str, ev_id: str, settings: dict) -> tuple[
         "detail_fetched": 1,
         "relevant": 1,
     }
-    _geocode_event(ev)
     home = (settings.get("home_lat"), settings.get("home_lon"))
     radius = float(settings.get("radius_km") or 50)
+    # Erst grob über die PLZ prüfen (ein Abruf pro PLZ), nur Termine im Umkreis genau verorten
+    m = re.search(r"\b(\d{5})\b", ev["address"] or "")
+    if ev["lat"] is None and m and home[0] is not None:
+        rough = geo.geocode(m.group(1))
+        if rough and geo.haversine_km(*home, rough[0], rough[1]) > radius + 10:
+            return 0, 0
+    _geocode_event(ev)
     if home[0] is not None and ev["lat"] is not None and geo.haversine_km(*home, ev["lat"], ev["lon"]) > radius + 5:
         return 0, 0
     return 1, int(db.upsert_event(ev))

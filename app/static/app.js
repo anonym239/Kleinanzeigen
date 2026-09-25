@@ -13,7 +13,7 @@ const store = {
 
 const DEFAULT_FILTERS = {
   range: "days", cats: [], q: "", radius: null, weekendOnly: false, favOnly: false,
-  undated: true, noLocation: true, services: false, showHidden: false, source: "", sort: "date",
+  undated: true, noLocation: false, services: false, showHidden: false, source: "", sort: "date",
 };
 const CAT_COLORS = ["flohmarkt", "hof", "haushalt", "kinder", "antik", "sonstiges"];
 
