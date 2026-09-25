@@ -92,7 +92,8 @@ _PRICE_NUM = re.compile(r"(\d[\d.]*)(?:,\d+)?\s*€")
 _ITEM_WORDS = re.compile(
     r"konvolut|paket|sammlung|kiste|karton|\bset\b|stück|figur|vase|geschirr|teller|tasse|lampe|handy|iphone|"
     r"samsung|playstation|fahrrad|schrank|sofa|stuhl|tisch|kleid|jacke|schuhe|gr\.\s*\d|größe|zu verkaufen|"
-    r"verkaufe\b|porzellan|gläser|möbel|angebot|artikel|\bcds?\b|lp\b|schallplatte",
+    r"verkaufe\b|porzellan|gläser|möbel|angebot|artikel|\bcds?\b|lp\b|schallplatte|sachen|zu verschenken|"
+    r"abzugeben|kartons?\b",
     re.I,
 )
 
@@ -110,7 +111,10 @@ def _item_price(price: str) -> bool:
 
 
 def is_event_ad(title: str, text: str = "", price: str = "", has_date: bool = False, has_time: bool = False) -> bool:
-    """True, wenn die Anzeige eine Veranstaltung / einen Verkauf vor Ort beschreibt (kein Einzelartikel)."""
+    """True, wenn die Anzeige eine Veranstaltung / einen Verkauf vor Ort beschreibt (kein Einzelartikel).
+
+    ``has_date`` nur bei einem ausdrücklichen Datum setzen ("27.09.", "4. Oktober") – nicht bei "heute"/"Samstag".
+    """
     t = _JOIN_FLOH.sub(lambda m: m.group(1) + "flohmarkt", title or "")
     blob = f"{t}\n{text or ''}"
     reason_only = bool(_REASON_ONLY.search(t))
@@ -128,6 +132,8 @@ def is_event_ad(title: str, text: str = "", price: str = "", has_date: bool = Fa
     score += 1 if _ON_SITE.search(blob) else 0
     if _item_price(price):
         score -= 2  # Veranstaltungen haben meist keinen oder nur einen Platzhalter-Preis
-    if not has_date and _ITEM_WORDS.search(t):
-        score -= 2  # Warenliste im Titel ohne Termin
+    if _ITEM_WORDS.search(t) and (not has_date or not _STRONG_WORDS.search(t)):
+        # Warenliste im Titel: ohne Termin immer verdächtig; mit Termin nur, wenn der Titel bloß das
+        # allgemeine "Flohmarkt"/"Trödel" enthält ("1 KARTON FLOHMARKT ARTIKEL – nur heute")
+        score -= 2
     return score >= 3

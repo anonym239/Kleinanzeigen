@@ -191,6 +191,11 @@ REAL_KIEL = [
     ("Flohmarkt Kiste Spiele Stativ Deko Filament Nicer Dicer usw.", "30 € VB", False, False),
     ("Flohmarkt Stand 3 Meter zu verkaufen", "35 €", True, False),
     ("Rollator aus Nachlass zu verkaufen", "30 €", False, False),
+    ("1 KARTON FLOHMARKT ARTIKEL", "VB", False, False),
+    ("Flohmarkt Sachen in Kartons zu verschenken. Nur 25.09.", "Zu verschenken", True, False),
+    ("Flohmarkt am 30.09.26", "Zu verschenken", True, True),
+    ("Kinderflohmarkt", "VB", False, True),
+    ("Flohmarkt Faldera", "VB", True, True),
 ]
 
 

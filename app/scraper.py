@@ -41,7 +41,8 @@ def _kleinanzeigen_event(ad: dict) -> dict:
     text = f"{ad['title']}\n{ad.get('description', '')}"
     parsed = parse_event_date(text, ad["posted"])
     time_text = parse_time_text(text) or ""
-    relevant = is_event_ad(ad["title"], ad.get("description", ""), ad.get("price", ""), bool(parsed), bool(time_text))
+    relevant = is_event_ad(ad["title"], ad.get("description", ""), ad.get("price", ""),
+                           bool(parsed and parsed.certain), bool(time_text))
     return {
         "id": f"ka:{ad['ad_id']}",
         "source": "kleinanzeigen",
@@ -88,7 +89,7 @@ def _run_kleinanzeigen(settings: dict) -> tuple[int, int]:
                     ev[k] = existing[k]
                 # Mit den aktuellen Regeln neu bewerten (Regeln können sich seit dem letzten Lauf geändert haben)
                 ev["relevant"] = int(is_event_ad(ev["title"], ev["description"], ev["price"],
-                                                 bool(ev["start_date"]), bool(ev["time_text"])))
+                                                 bool(ev["start_date"] and ev["date_certain"]), bool(ev["time_text"])))
             if ev["relevant"]:
                 _geocode_event(ev)  # Einzelartikel werden nur gemerkt, nicht verortet
             found += ev["relevant"]
