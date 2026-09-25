@@ -2,6 +2,10 @@
   publish = "."
   command = ""
 
+# Helfer zum Hinzufügen von Quellen direkt aus Seite/App (braucht GITHUB_TOKEN bei Netlify)
+[functions]
+  directory = "netlify/functions"
+
 [[headers]]
   for = "/data/*"
   [headers.values]
