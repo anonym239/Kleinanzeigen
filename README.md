@@ -37,28 +37,33 @@ Werbung von Entrümpelungsfirmen und Ankäufern ist standardmäßig ausgeblendet
 Auf **eBay.de** selbst gibt es keine Haushaltsauflösungs-Termine, nur einzelne Artikel. Deshalb wird eBay nicht durchsucht.
 markt.de lädt seine Anzeigen erst im Browser per JavaScript nach und lässt sich deshalb nicht einfach auslesen.
 
-## Variante 1: Ohne eigenen Server (GitHub Pages, empfohlen)
+## Variante 1: Ohne eigenen Server (Netlify, empfohlen)
 
-GitHub sucht alle 3 Stunden automatisch nach neuen Terminen und veröffentlicht die Webseite. Das ist kostenlos, und man
-braucht keinen eigenen Computer, der läuft.
+**So funktioniert es:** GitHub Actions sucht alle 3 Stunden nach neuen Terminen (kostenlos) und legt die fertige
+Webseite in den Branch **`live`**. Netlify ist mit diesem Branch verknüpft und veröffentlicht jede Änderung
+automatisch. Netlify muss nichts bauen und verbraucht deshalb keine Build-Minuten.
 
-**Einmalig einrichten:**
+**Einmalig einrichten (bei Netlify):**
 
-1. Auf GitHub im Repository: **Settings → Pages → Build and deployment → Source: „GitHub Actions“** auswählen.
-2. Die Datei **`config.json`** öffnen (auf GitHub mit dem Stift-Symbol bearbeiten) und bei `"home"` die eigene
-   **Postleitzahl** eintragen, bei `"radius_km"` den Umkreis (eingestellt: `24146` = Kiel-Elmschenhagen, `100` km). Speichern („Commit changes“).
-3. Nach ca. 5–10 Minuten ist die Seite erreichbar unter:
-   **https://anonym239.github.io/Kleinanzeigen/**
+1. Auf https://app.netlify.com anmelden → **„Add new site“ → „Import an existing project“ → „GitHub“**.
+2. Repository **anonym239/Kleinanzeigen** auswählen.
+3. **Branch to deploy: `live`**. „Build command“ leer lassen, „Publish directory“ leer lassen (bzw. `.`).
+4. **„Deploy“** klicken. Die Adresse (z.B. `https://flohmarkt-papa.netlify.app`) kann man unter
+   „Site configuration → Change site name“ anpassen.
 
-Die Seite dann auf dem Handy öffnen und über „Zum Startbildschirm hinzufügen“ wie eine App ablegen.
+Den Branch `live` legt der erste Suchlauf automatisch an. Falls er in Schritt 3 noch nicht auswählbar ist,
+kurz warten, bis unter **Actions** der Lauf „Termine suchen & Webseite veröffentlichen“ grün ist.
+
+**Suchgebiet ändern:** Datei **`config.json`** auf GitHub öffnen (Stift-Symbol), bei `"home"` die Postleitzahl und bei
+`"radius_km"` den Umkreis eintragen (eingestellt: `24146` = Kiel-Elmschenhagen, `100` km), „Commit changes“.
+Danach sucht GitHub automatisch neu (erster Lauf ca. 10–15 Minuten, danach schneller).
+
+Die Seite auf dem Handy öffnen und über „Zum Startbildschirm hinzufügen“ wie eine App ablegen.
 Favoriten, Notizen und eigene Termine speichert das jeweilige Gerät (Handy und PC getrennt).
-Den Wohnort für die Entfernungsberechnung kann man in der Seite unter „Einstellungen“ ändern;
-das **Suchgebiet** selbst legt die `config.json` fest.
+Ob die letzte Suche geklappt hat, steht in der Seite unter Einstellungen → „Zustand der Quellen“ oder auf GitHub unter **Actions**.
 
-Ob die letzte Suche geklappt hat, steht unter Einstellungen → „Zustand der Quellen“ oder auf GitHub unter **Actions**.
-Eine Suche sofort starten: **Actions → „Termine suchen & Webseite veröffentlichen“ → „Run workflow“**.
-
-> Hinweis: Die Suche läuft nach Zeitplan nur auf dem Standard-Branch des Repositories.
+> Hinweis: Der Zeitplan (alle 3 Stunden) läuft bei GitHub nur auf dem **Standard-Branch** des Repositories.
+> Die Webseite funktioniert genauso mit GitHub Pages oder jedem anderen Webspace: einfach den Inhalt des Branches `live` ausliefern.
 
 ## Variante 2: Auf dem eigenen Homeserver
 
@@ -111,8 +116,8 @@ Aufbau:
 | `app/sources/kleinanzeigen.py` | Liest Kleinanzeigen-Suchergebnisse und Detailseiten |
 | `app/sources/events_page.py` | Liest schema.org-Events und iCal-Kalender von beliebigen Webseiten |
 | `app/sources/calendars.py` | Flohmarkt-Terminkalender nach PLZ-Gebiet (krencky24.de, meine-flohmarkt-termine.de) |
-| `app/build_site.py` | Sucht und baut die statische Webseite für GitHub Pages |
-| `.github/workflows/site.yml` | Automatische Suche alle 3 Stunden + Veröffentlichung |
+| `app/build_site.py` | Sucht und baut die statische Webseite (für Netlify) |
+| `.github/workflows/site.yml` | Automatische Suche alle 3 Stunden, Ergebnis in Branch `live` |
 | `app/dateparse.py` | Erkennt Datum und Uhrzeit in deutschem Text |
 | `app/classify.py` | Ordnet Kategorien zu und erkennt Firmen-Werbung |
 | `app/geo.py` | Orte in Koordinaten umrechnen, Entfernung berechnen |

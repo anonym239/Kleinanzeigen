@@ -1,4 +1,6 @@
 name: Termine suchen & Webseite veröffentlichen
+# Sucht alle 3 Stunden neue Termine und legt die fertige Webseite in den Branch "live".
+# Netlify ist mit dem Branch "live" verknüpft und veröffentlicht jede Änderung automatisch.
 on:
   schedule:
     - cron: "23 */3 * * *"   # alle 3 Stunden
@@ -7,9 +9,7 @@ on:
     paths: [config.json, app/**, .github/workflows/site.yml]
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write   # zum Aktualisieren des Branches "live"
 
 concurrency:
   group: site
@@ -18,6 +18,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     env:
       FLOHMARKT_DB: data/flohmarkt.db
       TZ: Europe/Berlin
@@ -43,15 +44,23 @@ jobs:
           path: data
           key: flohmarkt-db-${{ github.run_id }}
 
-      - uses: actions/upload-pages-artifact@v3
-        with: { path: site }
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Webseite in Branch "live" legen (Netlify veröffentlicht automatisch)
+        run: |
+          git config user.name "flohmarkt-bot"
+          git config user.email "flohmarkt-bot@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin live >/dev/null; then
+            git fetch --depth 1 origin live
+            git worktree add -B live /tmp/live origin/live
+          else
+            git worktree add --orphan -b live /tmp/live
+          fi
+          find /tmp/live -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp -a site/. /tmp/live/
+          cd /tmp/live
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Keine Änderungen."
+          else
+            git commit -q -m "Termine aktualisiert $(date +'%d.%m.%Y %H:%M')"
+            git push origin live
+          fi

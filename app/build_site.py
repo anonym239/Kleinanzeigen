@@ -1,4 +1,4 @@
-"""Sucht Termine und baut daraus eine statische Webseite (für GitHub Pages, ohne eigenen Server).
+"""Sucht Termine und baut daraus eine statische Webseite (für Netlify & Co., ohne eigenen Server).
 
     python -m app.build_site --config config.json --out site
 
@@ -19,6 +19,27 @@ from .classify import CATEGORY_LABELS
 
 log = logging.getLogger("build_site")
 STATIC = Path(__file__).resolve().parent / "static"
+
+# Netlify: nichts bauen, nur veröffentlichen; Termin-Daten und Service-Worker nie zwischenspeichern
+NETLIFY_TOML = """[build]
+  publish = "."
+  command = ""
+
+[[headers]]
+  for = "/data/*"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache"
+"""
 
 
 def apply_config(cfg: dict) -> dict:
@@ -54,6 +75,11 @@ def export(out: Path, settings: dict) -> int:
         shutil.copy(STATIC / name, out / name)
     (out / "static" / "mode.js").write_text("window.FLOHMARKT_STATIC = true;\n")
     (out / ".nojekyll").write_text("")
+    (out / "netlify.toml").write_text(NETLIFY_TOML)
+    (out / "README.md").write_text(
+        "# Flohmarkt-Finder – veröffentlichte Webseite\n\n"
+        "Dieser Branch wird automatisch alle 3 Stunden von GitHub Actions erzeugt (siehe `.github/workflows/site.yml`\n"
+        "im Haupt-Branch). Bitte hier nichts von Hand ändern. Netlify veröffentlicht diesen Branch.\n")
 
     keep = ("id", "source", "title", "description", "url", "image", "category", "start_date", "end_date",
             "date_certain", "time_text", "location", "address", "lat", "lon", "price", "is_service",
