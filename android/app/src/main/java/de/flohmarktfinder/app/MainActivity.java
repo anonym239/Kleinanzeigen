@@ -29,6 +29,9 @@ public class MainActivity extends Activity {
     private static final String HOST = "appassets.androidplatform.net";
     private static final String START_URL = "https://" + HOST + "/assets/www/index.html";
     private WebView webView;
+    private String remoteUrl = "";   // Webseite (z.B. Netlify); leer = eingebaute Oberfläche
+    private String remoteHost = "";
+    private boolean usingFallback = false;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -40,6 +43,10 @@ public class MainActivity extends Activity {
                 .setDomain(HOST)
                 .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
                 .build();
+
+        remoteUrl = getString(R.string.app_url).trim();
+        remoteHost = remoteUrl.isEmpty() ? "" : String.valueOf(Uri.parse(remoteUrl).getHost());
+        WebView.setWebContentsDebuggingEnabled(true);
 
         webView = new WebView(this);
         WebSettings ws = webView.getSettings();
@@ -58,9 +65,19 @@ public class MainActivity extends Activity {
             }
 
             @Override
+            public void onReceivedError(WebView view, WebResourceRequest request, android.webkit.WebResourceError error) {
+                // Webseite nicht erreichbar -> eingebaute Oberfläche verwenden (lädt die Termine selbst)
+                if (request.isForMainFrame() && !usingFallback && !remoteUrl.isEmpty()) {
+                    usingFallback = true;
+                    view.loadUrl(START_URL);
+                }
+            }
+
+            @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri uri = request.getUrl();
-                if (HOST.equals(uri.getHost())) {
+                String host = uri.getHost();
+                if (HOST.equals(host) || (!remoteHost.isEmpty() && remoteHost.equals(host))) {
                     return false; // eigene Seiten in der App
                 }
                 openExternal(uri); // Anzeige, Route (Google Maps) usw. in der passenden App öffnen
@@ -72,7 +89,7 @@ public class MainActivity extends Activity {
         if (savedInstanceState != null) {
             webView.restoreState(savedInstanceState);
         } else {
-            webView.loadUrl(START_URL);
+            webView.loadUrl(remoteUrl.isEmpty() ? START_URL : remoteUrl);
         }
     }
 

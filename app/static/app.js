@@ -81,6 +81,7 @@ function toast(msg, ms = 3500) {
 
 const STATIC = !!window.FLOHMARKT_STATIC;
 if (STATIC) document.documentElement.classList.add("static-mode");
+if (window.AndroidApp) window.FLOHMARKT_APP = true; // Webseite läuft in der Android-App
 if (window.FLOHMARKT_APP) document.documentElement.classList.add("in-app");
 
 async function api(path, opts = {}) {
@@ -115,13 +116,29 @@ async function geocodeBrowser(q) {
   return { lat: Number(j[0].lat), lon: Number(j[0].lon), label: j[0].display_name };
 }
 
+const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+
 async function loadStaticData(force = false) {
   if (L$.data && !force) return L$.data;
-  const src = window.FLOHMARKT_DATA_URL || "data/events.json";
-  const r = await fetch(`${src}?t=${Date.now()}`, { cache: "no-store" });
-  if (!r.ok) throw new Error("Die Termin-Daten wurden noch nicht erzeugt. Bitte später erneut versuchen.");
-  L$.data = await r.json();
-  return L$.data;
+  // Mehrere Quellen und Versuche (in der App z.B. GitHub und als Ersatz das jsDelivr-CDN)
+  const sources = window.FLOHMARKT_DATA_URLS || [window.FLOHMARKT_DATA_URL || "data/events.json"];
+  const problems = [];
+  for (let attempt = 0; attempt < 3; attempt++) {
+    for (const src of sources) {
+      try {
+        const r = await fetch(`${src}?t=${Date.now()}`, { cache: "no-store" });
+        if (!r.ok) { problems.push(`${new URL(src, location.href).host}: HTTP ${r.status}`); continue; }
+        L$.data = await r.json();
+        return L$.data;
+      } catch (e) {
+        problems.push(`${new URL(src, location.href).host}: ${e.message}`);
+      }
+    }
+    await sleep(1500 * (attempt + 1)); // z.B. wenn das Netz beim App-Start noch nicht bereit ist
+  }
+  const err = new Error("Die Termine konnten nicht geladen werden.");
+  err.detail = `${navigator.onLine === false ? "Das Gerät meldet: keine Internetverbindung. " : ""}${[...new Set(problems)].join(" · ")}`;
+  throw err;
 }
 
 function localSettings() {
@@ -727,6 +744,15 @@ function measureTopbar() {
 }
 
 function bind() {
+  $(".brand").addEventListener("click", (e) => {
+    e.preventDefault();
+    for (const d of $$("dialog[open]")) d.close();
+    $("#filters").classList.remove("open");
+    S.filters.range = "weekend";
+    S.view = "list";
+    if (S.events.length) render(); else startLoad();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
   $("#rangeBar").addEventListener("click", (e) => {
     const b = e.target.closest("[data-range]"); if (!b) return;
     S.filters.range = b.dataset.range; render();
@@ -826,19 +852,37 @@ function bind() {
   document.addEventListener("visibilitychange", () => { if (!document.hidden) { loadEvents().catch(() => {}); pollStatus(); } });
 }
 
+async function startLoad() {
+  $("#count").textContent = "Lade Termine …";
+  try {
+    S.settings = await api("/api/settings");
+    await loadEvents();
+  } catch (e) {
+    showLoadError(e);
+  }
+}
+
+function showLoadError(e) {
+  $("#count").textContent = "Keine Verbindung";
+  $("#welcome").hidden = true;
+  $("#list").hidden = false;
+  $("#list").innerHTML = `<div class="empty">
+    <h2>${esc(e.message || "Die Termine konnten nicht geladen werden.")}</h2>
+    <p>Bitte prüfen, ob das Handy mit dem Internet (WLAN oder mobile Daten) verbunden ist, und dann erneut versuchen.</p>
+    ${window.FLOHMARKT_APP ? `<p class="hint">Falls es weiter nicht geht: Handy-Einstellungen → Apps → Flohmärkte → „Mobile Daten &amp; WLAN“ bzw. „Netzwerkzugriff“ erlauben.</p>` : ""}
+    <button class="btn primary" type="button" id="retryLoad">Erneut versuchen</button>
+    ${e.detail ? `<p class="hint err-detail">Technische Info: ${esc(e.detail)}</p>` : ""}
+  </div>`;
+  $("#retryLoad").addEventListener("click", startLoad);
+}
+
 async function main() {
   S.prevVisit = store.get("lastVisit", 0);
   store.set("lastVisit", Date.now() / 1000);
   applyLook();
   bind();
   measureTopbar();
-  try {
-    S.settings = await api("/api/settings");
-    await loadEvents();
-  } catch (e) {
-    $("#count").textContent = "Server nicht erreichbar";
-    toast(e.message, 6000);
-  }
+  await startLoad();
   const st = await pollStatus();
   if (st && !st.last_finished && !st.runs.length && S.settings.home_query && !st.running) startRefresh();
   if ("serviceWorker" in navigator && !window.FLOHMARKT_APP) navigator.serviceWorker.register("sw.js").catch(() => {});

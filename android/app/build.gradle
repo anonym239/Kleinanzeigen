@@ -16,6 +16,8 @@ android {
         targetSdk 34
         versionCode versionCodeEnv
         versionName versionNameEnv
+        // Adresse der Webseite (z.B. Netlify). Leer = eingebaute Oberfläche verwenden.
+        resValue "string", "app_url", (System.getenv("APP_URL") ?: "")
     }
 
     signingConfigs {

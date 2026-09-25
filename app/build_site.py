@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import shutil
 import time
 from pathlib import Path
@@ -123,8 +124,17 @@ def export_app_assets(out: Path, data_url: str) -> None:
     (out / "static" / "mode.js").write_text(
         "window.FLOHMARKT_STATIC = true;\n"
         "window.FLOHMARKT_APP = true;\n"
-        f"window.FLOHMARKT_DATA_URL = {json.dumps(data_url)};\n"
+        f"window.FLOHMARKT_DATA_URLS = {json.dumps(data_urls(data_url))};\n"
     )
+
+
+def data_urls(primary: str) -> list[str]:
+    """GitHub (aktuell) und als Ersatz das jsDelivr-CDN, das denselben Branch ausliefert."""
+    urls = [primary]
+    m = re.match(r"https://raw\.githubusercontent\.com/([^/]+)/([^/]+)/([^/]+)/(.+)", primary)
+    if m:
+        urls.append(f"https://cdn.jsdelivr.net/gh/{m.group(1)}/{m.group(2)}@{m.group(3)}/{m.group(4)}")
+    return urls
 
 
 def main() -> None:

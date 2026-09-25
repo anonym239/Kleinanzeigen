@@ -5,7 +5,7 @@ name: Android-App bauen (APK)
 on:
   workflow_dispatch:
   push:
-    paths: [android/**, app/static/**, app/build_site.py, .github/workflows/android.yml]
+    paths: [android/**, app/static/**, app/build_site.py, config.json, .github/workflows/android.yml]
 
 permissions:
   contents: write   # Release anlegen
@@ -40,6 +40,9 @@ jobs:
             echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.p12"
             echo "KEYSTORE_FILE=$RUNNER_TEMP/release.p12" >> "$GITHUB_ENV"
           fi
+
+      - name: Adresse der Webseite aus config.json
+        run: echo "APP_URL=$(python -c 'import json;print(json.load(open("config.json")).get("app_url",""))')" >> "$GITHUB_ENV"
 
       - name: APK bauen
         working-directory: android
