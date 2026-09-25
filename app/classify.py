@@ -50,3 +50,45 @@ def is_service_ad(title: str, text: str = "") -> bool:
     blob = f"{title} {text}".lower()
     hits = sum(1 for w in SERVICE_WORDS if w in blob)
     return hits >= 2 or ("entrümpel" in title.lower()) or ("ankauf" in title.lower())
+
+
+# ---------- Veranstaltung oder einzelner Artikel? ----------
+# Viele Anzeigen nennen "Haushaltsauflösung" nur als Grund ("Vase aus Haushaltsauflösung, 5 €").
+# Solche Einzelartikel sollen nicht erscheinen – nur echte Termine/Verkäufe vor Ort.
+_EVENT_WORDS = re.compile(
+    r"flohmarkt|flohmärkte|trödelmarkt|troedelmarkt|antikmarkt|basar|bazar|haushaltsauflösung|haushaltsaufloesung|"
+    r"wohnungsauflösung|wohnungsaufloesung|hausauflösung|hausaufloesung|nachlass|hofverkauf|garagenverkauf|"
+    r"räumungsverkauf|kellerauflösung|dachbodenauflösung|garagenflohmarkt|hofflohmarkt",
+    re.I,
+)
+_REASON_ONLY = re.compile(
+    r"\b(aus|wegen|von|vom|durch|nach|bei|infolge)\s+(der\s+|einer\s+|meiner\s+|unserer\s+|dem\s+|einem\s+)?"
+    r"(haushalts|wohnungs|haus|keller|dachboden)?(auflösung|aufloesung|nachlass)",
+    re.I,
+)
+_ON_SITE = re.compile(
+    r"vor ort|alles muss raus|besichtigung|termin|geöffnet|öffnungszeit|uhr\b|samstag|sonntag|wochenende|"
+    r"verkauf findet|verkaufen wir|stände|standgebühr|aussteller|verkäufer|tür(en)? offen|kommen sie|kommt vorbei|"
+    r"schnäppchen|stöbern|alles günstig|restposten|komplett|gesamter hausstand|hausstand|inventar",
+    re.I,
+)
+_ITEM_PRICE = re.compile(r"^\s*\d+[\d.,]*\s*€")
+
+
+def is_event_ad(title: str, text: str = "", price: str = "", has_date: bool = False, has_time: bool = False) -> bool:
+    """True, wenn die Anzeige eine Veranstaltung / einen Verkauf vor Ort beschreibt."""
+    t = title or ""
+    blob = f"{t}\n{text or ''}"
+    in_title = bool(_EVENT_WORDS.search(t)) and not _REASON_ONLY.search(t)
+    if not in_title and not _EVENT_WORDS.search(blob):
+        return False
+    score = 0
+    score += 3 if in_title else 0
+    score -= 3 if _REASON_ONLY.search(t) else 0
+    score += 2 if has_date else 0
+    score += 1 if has_time else 0
+    score += 1 if _ON_SITE.search(blob) else 0
+    if _ITEM_PRICE.search(price or ""):
+        # Konkreter Preis spricht für einen Einzelartikel (Veranstaltungen haben meist keinen Preis)
+        score -= 2
+    return score >= 3

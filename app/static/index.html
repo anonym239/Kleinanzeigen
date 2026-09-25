@@ -6,20 +6,20 @@
 <title>Flohmarkt-Finder</title>
 <meta name="theme-color" content="#0e6f60">
 <meta name="description" content="Flohmärkte, Hofflohmärkte und Haushaltsauflösungen in der Nähe">
-<link rel="manifest" href="/manifest.webmanifest">
-<link rel="icon" href="/icon.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/icon.svg">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&display=swap">
-<link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="static/vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="static/style.css">
 </head>
 <body>
 <header class="topbar">
   <div class="topbar-row">
-    <a class="brand" href="/" aria-label="Flohmarkt-Finder Startseite">
+    <a class="brand" href="./" aria-label="Flohmarkt-Finder Startseite">
       <svg class="brand-tag" viewBox="0 0 32 32" aria-hidden="true"><path d="M4 16 14 4h14v24H14Z" /><circle cx="11" cy="16" r="2.4" /></svg>
       <span>Flohmarkt-Finder</span>
     </a>
@@ -62,10 +62,6 @@
       <input type="search" id="q" placeholder="z.B. Werkzeug, Möbel, Kirche …" autocomplete="off">
     </label>
 
-    <div class="field">
-      <span class="field-label">Art</span>
-      <div class="cat-chips" id="catChips"></div>
-    </div>
 
     <div class="field">
       <label class="field-label" for="radius">Umkreis: <strong id="radiusOut">30 km</strong></label>
@@ -115,6 +111,8 @@
       </div>
     </div>
 
+    <div class="cat-chips" id="catChips" role="group" aria-label="Art der Veranstaltung"></div>
+
     <section class="welcome" id="welcome" hidden>
       <h1>Wo wohnst du?</h1>
       <p>Gib deine Postleitzahl oder deinen Ort ein. Dann sucht der Finder Flohmärkte, Hofflohmärkte und Haushaltsauflösungen in deiner Nähe.</p>
@@ -122,7 +120,7 @@
         <input id="welcomeQuery" type="text" inputmode="text" placeholder="z.B. 50667 oder Köln" required>
         <select id="welcomeRadius" aria-label="Umkreis">
           <option value="10">10 km</option><option value="20">20 km</option>
-          <option value="30" selected>30 km</option><option value="50">50 km</option><option value="100">100 km</option>
+          <option value="30">30 km</option><option value="50" selected>50 km</option><option value="100">100 km</option>
         </select>
         <button class="btn primary" type="submit">Los geht's</button>
       </form>
@@ -157,7 +155,8 @@
       <label class="field"><span class="field-label">PLZ oder Ort</span>
         <input id="setHome" type="text" placeholder="z.B. 50667 oder Köln"></label>
       <p class="hint" id="setHomeLabel"></p>
-      <label class="field"><span class="field-label">Suchradius bei Kleinanzeigen (km)</span>
+      <p class="hint static-only" id="regionHint"></p>
+      <label class="field"><span class="field-label">Umkreis (km)</span>
         <input id="setRadius" type="number" min="5" max="200" step="5"></label>
       <label class="field"><span class="field-label">„Nächste Tage“ umfasst</span>
         <input id="setDays" type="number" min="1" max="90"></label>
@@ -181,7 +180,7 @@
       </div>
     </fieldset>
 
-    <fieldset>
+    <fieldset class="server-only">
       <legend>Suche</legend>
       <label class="switch"><input type="checkbox" id="setKa"><span>Kleinanzeigen durchsuchen</span></label>
       <label class="field"><span class="field-label">Suchbegriffe (einer pro Zeile)</span>
@@ -195,7 +194,7 @@
       <p class="hint">Funktioniert mit Seiten, die ihre Termine als schema.org-Event anbieten, und mit iCal-Adressen (.ics), z.B. von der Stadt, der Kirchengemeinde oder einem Veranstalter.</p>
     </fieldset>
 
-    <fieldset>
+    <fieldset class="server-only">
       <legend>Kalender</legend>
       <p class="hint">Diese Adresse im Handy-Kalender abonnieren. Dann stehen alle gemerkten Termine automatisch im Kalender:</p>
       <div class="copy-row"><input id="icsUrl" type="text" readonly><button class="btn ghost" type="button" id="copyIcs">Kopieren</button></div>
@@ -244,7 +243,8 @@
 
 <div class="toast" id="toast" role="status" hidden></div>
 
-<script src="/static/vendor/leaflet/leaflet.js"></script>
-<script src="/static/app.js"></script>
+<script src="static/mode.js"></script>
+<script src="static/vendor/leaflet/leaflet.js"></script>
+<script src="static/app.js"></script>
 </body>
 </html>

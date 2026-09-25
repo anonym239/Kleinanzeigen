@@ -111,3 +111,16 @@ def test_service_detection():
     assert is_service_ad("Suche Flohmarktartikel")
     assert is_service_ad("Haushaltsauflösung", "Wir bieten besenreine Übergabe, kostenlose Besichtigung")
     assert not is_service_ad("Haushaltsauflösung am Samstag", "Alles muss raus, Möbel, Geschirr, Werkzeug")
+
+
+def test_event_vs_single_item():
+    from app.classify import is_event_ad
+    assert is_event_ad("Haushaltsauflösung am Samstag", "Alles muss raus", "", True, True)
+    assert is_event_ad("Hofflohmarkt", "Wir räumen die Garage", "VB")
+    assert is_event_ad("Große Wohnungsauflösung – alles muss raus", "", "")
+    assert is_event_ad("Kinderkleiderbasar im Gemeindehaus", "", "", True)
+    assert not is_event_ad("Vase aus Haushaltsauflösung", "schöne Vase", "5 €")
+    assert not is_event_ad("iPhone 15 wie neu", "wegen Haushaltsauflösung abzugeben", "650 €")
+    assert not is_event_ad("Samsung Handy", "", "120 €")
+    assert not is_event_ad("Stuhl wegen Wohnungsauflösung", "Abholung Samstag", "15 €", True)
+    assert not is_event_ad("Flohmarkt Paket Kinderkleidung Gr. 104", "", "10 €")

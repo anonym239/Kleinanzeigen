@@ -65,14 +65,158 @@ function toast(msg, ms = 3500) {
   clearTimeout(toast._t); toast._t = setTimeout(() => { t.hidden = true; }, ms);
 }
 
+const STATIC = !!window.FLOHMARKT_STATIC;
+if (STATIC) document.documentElement.classList.add("static-mode");
+
 async function api(path, opts = {}) {
-  const r = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts });
+  if (STATIC) return localApi(path.replace(/^\//, ""), opts);
+  const r = await fetch(path.replace(/^\//, ""), { headers: { "Content-Type": "application/json" }, ...opts });
   if (!r.ok) {
     let msg = `Fehler ${r.status}`;
     try { const j = await r.json(); if (j.detail) msg = typeof j.detail === "string" ? j.detail : "Bitte Eingaben prüfen."; } catch { /* egal */ }
     throw new Error(msg);
   }
   return r.json();
+}
+
+/* ---------- Betrieb ohne Server (GitHub Pages) ----------
+   Die Termine kommen aus data/events.json (alle 3 Stunden von GitHub neu erzeugt).
+   Wohnort, Favoriten, Notizen und eigene Termine speichert der Browser. */
+const L$ = { data: null };
+
+function haversine(lat1, lon1, lat2, lon2) {
+  const r = (x) => (x * Math.PI) / 180;
+  const a = Math.sin(r(lat2 - lat1) / 2) ** 2 + Math.cos(r(lat1)) * Math.cos(r(lat2)) * Math.sin(r(lon2 - lon1) / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(a));
+}
+
+async function geocodeBrowser(q) {
+  const plz = /^\d{5}$/.test(q.trim());
+  const params = new URLSearchParams({ format: "json", limit: "1", countrycodes: "de,at,ch" });
+  if (plz) { params.set("postalcode", q.trim()); params.set("country", "Deutschland"); } else params.set("q", q);
+  const r = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, { headers: { "Accept-Language": "de" } });
+  const j = r.ok ? await r.json() : [];
+  if (!j.length) return null;
+  return { lat: Number(j[0].lat), lon: Number(j[0].lon), label: j[0].display_name };
+}
+
+async function loadStaticData(force = false) {
+  if (L$.data && !force) return L$.data;
+  const r = await fetch(`data/events.json?t=${Date.now()}`, { cache: "no-store" });
+  if (!r.ok) throw new Error("Die Termin-Daten wurden noch nicht erzeugt. Bitte später erneut versuchen.");
+  L$.data = await r.json();
+  return L$.data;
+}
+
+function localSettings() {
+  const region = L$.data?.region || {};
+  const own = store.get("homeSettings", {});
+  return {
+    home_query: region.home_query || "", home_label: region.home_label || "", home_lat: region.home_lat ?? null,
+    home_lon: region.home_lon ?? null, radius_km: region.radius_km || 50, days_ahead: region.days_ahead || 14,
+    region_query: region.home_query || "", region_radius: region.radius_km || 50, ...own,
+  };
+}
+
+function manualEvents() { return store.get("manualEvents", []); }
+
+async function localApi(path, opts) {
+  const method = (opts.method || "GET").toUpperCase();
+  const body = opts.body ? JSON.parse(opts.body) : {};
+  const states = store.get("eventState", {});
+  const m = path.match(/^api\/events\/(.+?)(\/state)?$/);
+
+  if (path === "api/settings" && method === "GET") { await loadStaticData(); return localSettings(); }
+  if (path === "api/settings" && method === "PUT") {
+    const cur = localSettings();
+    const own = store.get("homeSettings", {});
+    for (const k of ["radius_km", "days_ahead"]) if (body[k] != null) own[k] = body[k];
+    if (body.home_query != null && body.home_query.trim() !== cur.home_query) {
+      const q = body.home_query.trim();
+      let g = null;
+      try { g = q ? await geocodeBrowser(q) : null; } catch { /* offline */ }
+      if (q && !g) throw new Error(`Ort „${q}“ wurde nicht gefunden. Bitte PLZ oder Ortsnamen prüfen.`);
+      Object.assign(own, q ? { home_query: q, home_lat: g.lat, home_lon: g.lon, home_label: g.label }
+        : { home_query: "", home_lat: null, home_lon: null, home_label: "" });
+    }
+    store.set("homeSettings", own);
+    return localSettings();
+  }
+  if (path === "api/events" && method === "GET") {
+    const data = await loadStaticData();
+    const set = localSettings();
+    const events = [...data.events, ...manualEvents()].map((e) => {
+      const st = states[e.id] || {};
+      const dist = set.home_lat != null && e.lat != null ? Math.round(haversine(set.home_lat, set.home_lon, e.lat, e.lon) * 10) / 10 : null;
+      return { ...e, favorite: !!st.favorite, hidden: !!st.hidden, note: st.note || "", distance_km: dist,
+        category_label: data.categories[e.category] || "Sonstiges", manual: !!e.manual };
+    });
+    const today = new Date();
+    return { events, categories: data.categories, today: toISO(today) };
+  }
+  if (m && m[2] && method === "PATCH") {
+    states[m[1]] = { ...(states[m[1]] || {}), ...body };
+    store.set("eventState", states);
+    return states[m[1]];
+  }
+  if (path === "api/events" && method === "POST") {
+    const ev = {
+      id: `manual:${Date.now().toString(36)}`, source: "eigener Eintrag", manual: true, title: body.title,
+      description: body.description || "", url: /^https?:\/\//.test(body.url || "") ? body.url : "", image: "",
+      category: body.category, start_date: body.start_date, end_date: body.end_date && body.end_date >= body.start_date ? body.end_date : body.start_date,
+      date_certain: true, time_text: body.time_text || "", location: body.address || "", address: body.address || "",
+      lat: null, lon: null, price: "", is_service: false, posted_at: null, first_seen: Date.now() / 1000,
+    };
+    if (!ev.title || ev.title.length < 2 || !ev.start_date) throw new Error("Bitte Titel und Datum angeben.");
+    if (ev.address) { try { const g = await geocodeBrowser(ev.address); if (g) { ev.lat = g.lat; ev.lon = g.lon; } } catch { /* offline */ } }
+    store.set("manualEvents", [...manualEvents(), ev]);
+    return ev;
+  }
+  if (m && !m[2] && method === "DELETE") {
+    store.set("manualEvents", manualEvents().filter((e) => e.id !== m[1]));
+    return { ok: true };
+  }
+  if (path === "api/hidden/reset") {
+    let n = 0;
+    for (const st of Object.values(states)) if (st.hidden) { st.hidden = false; n++; }
+    store.set("eventState", states);
+    return { restored: n };
+  }
+  if (path === "api/refresh") {
+    await loadStaticData(true);
+    return { started: false, running: false };
+  }
+  if (path === "api/status") {
+    const data = await loadStaticData();
+    return { running: false, message: "", last_finished: data.generated_at, runs: data.runs || [], total_events: data.events.length };
+  }
+  throw new Error("Unbekannte Anfrage");
+}
+
+/* ---------- Kalender-Datei (.ics) ---------- */
+function icsFor(evs) {
+  const esc2 = (s) => String(s || "").replace(/\\/g, "\\\\").replace(/;/g, "\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
+  const d = (iso, plus = 0) => toISO(addDays(parseISO(iso), plus)).replace(/-/g, "");
+  const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Flohmarkt-Finder//DE", "CALSCALE:GREGORIAN"];
+  for (const ev of evs) {
+    if (!ev.start_date) continue;
+    lines.push("BEGIN:VEVENT", `UID:${ev.id.replace(/[^a-zA-Z0-9]/g, "")}@flohmarkt-finder`,
+      `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, "").slice(0, 15)}Z`,
+      `DTSTART;VALUE=DATE:${d(ev.start_date)}`, `DTEND;VALUE=DATE:${d(ev.end_date || ev.start_date, 1)}`,
+      `SUMMARY:${esc2(ev.title + (ev.time_text ? ` (${ev.time_text})` : ""))}`,
+      `DESCRIPTION:${esc2([ev.time_text, (ev.description || "").slice(0, 1000), ev.url].filter(Boolean).join("\n"))}`,
+      `LOCATION:${esc2(ev.address || ev.location)}`, ...(ev.url ? [`URL:${ev.url}`] : []), "END:VEVENT");
+  }
+  lines.push("END:VCALENDAR");
+  return lines.join("\r\n") + "\r\n";
+}
+
+function downloadIcs(ev) {
+  if (!STATIC) { location.href = `api/events/${encodeURIComponent(ev.id)}/ics`; return; }
+  const url = URL.createObjectURL(new Blob([icsFor([ev])], { type: "text/calendar" }));
+  const a = Object.assign(document.createElement("a"), { href: url, download: "termin.ics" });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
 /* ---------- Datum-Bereiche ---------- */
@@ -192,7 +336,7 @@ function cardHTML(ev) {
       <div class="card-actions">
         <button class="act fav" type="button" data-act="fav" aria-pressed="${ev.favorite}" title="Merken">${icon("star")}<span>${ev.favorite ? "Gemerkt" : "Merken"}</span></button>
         <a class="act" href="${routeUrl(ev)}" target="_blank" rel="noopener" data-act="link" title="Route planen">${icon("route")}<span>Route</span></a>
-        ${ev.start_date ? `<a class="act" href="/api/events/${encodeURIComponent(ev.id)}/ics" data-act="link" title="In den Kalender">${icon("cal")}<span>Kalender</span></a>` : ""}
+        ${ev.start_date ? `<button class="act" type="button" data-act="ics" title="In den Kalender">${icon("cal")}<span>Kalender</span></button>` : ""}
         <button class="act" type="button" data-act="hide" title="${ev.hidden ? "Wieder anzeigen" : "Ausblenden"}">${icon(ev.hidden ? "eye" : "eyeoff")}<span>${ev.hidden ? "Einblenden" : "Ausblenden"}</span></button>
       </div>
     </div>
@@ -353,7 +497,7 @@ function openDetail(id) {
       <button class="btn ${ev.favorite ? "primary" : "ghost"}" type="button" data-dact="fav">${icon("star")} ${ev.favorite ? "Gemerkt" : "Merken"}</button>
       ${ev.url ? `<a class="btn ghost" href="${esc(ev.url)}" target="_blank" rel="noopener">${icon("ext")} Anzeige öffnen</a>` : ""}
       <a class="btn ghost" href="${routeUrl(ev)}" target="_blank" rel="noopener">${icon("route")} Route</a>
-      ${ev.start_date ? `<a class="btn ghost" href="/api/events/${encodeURIComponent(ev.id)}/ics">${icon("cal")} In den Kalender</a>` : ""}
+      ${ev.start_date ? `<button class="btn ghost" type="button" data-dact="ics">${icon("cal")} In den Kalender</button>` : ""}
       <button class="btn ghost" type="button" data-dact="share">${icon("share")} Teilen</button>
       <button class="btn ghost" type="button" data-dact="hide">${icon(ev.hidden ? "eye" : "eyeoff")} ${ev.hidden ? "Wieder anzeigen" : "Ausblenden"}</button>
       ${ev.manual ? `<button class="btn danger" type="button" data-dact="delete">Termin löschen</button>` : ""}
@@ -388,6 +532,14 @@ async function shareEvent(ev) {
 
 /* ---------- Aktualisieren ---------- */
 async function startRefresh() {
+  if (STATIC) {
+    try {
+      await api("/api/refresh", { method: "POST" });
+      await loadEvents();
+      toast(`Stand: ${new Date(L$.data.generated_at * 1000).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" })} Uhr. Neue Anzeigen kommen automatisch alle 3 Stunden.`, 5000);
+    } catch (e) { toast(e.message); }
+    return;
+  }
   try {
     await api("/api/refresh", { method: "POST" });
     toast("Suche gestartet. Das kann ein paar Minuten dauern.");
@@ -428,6 +580,8 @@ async function openSettings() {
   const s = S.settings;
   $("#setHome").value = s.home_query || "";
   $("#setHomeLabel").textContent = s.home_label ? `Gefunden: ${s.home_label}` : "";
+  $("#regionHint").textContent = STATIC && s.region_query
+    ? `Die Anzeigen werden im Umkreis von ${s.region_radius} km um ${s.region_query} gesucht (einstellbar in config.json). Hier stellst du ein, von wo aus die Entfernung gerechnet wird.` : "";
   $("#setRadius").value = s.radius_km;
   $("#setDays").value = s.days_ahead;
   $("#setKa").checked = !!s.kleinanzeigen_enabled;
@@ -435,7 +589,7 @@ async function openSettings() {
   $("#setPages").value = s.kleinanzeigen_pages;
   $("#setHours").value = s.refresh_hours;
   $("#setUrls").value = (s.extra_urls || []).join("\n");
-  $("#icsUrl").value = `${location.origin}/api/favorites.ics`;
+  $("#icsUrl").value = new URL("api/favorites.ics", location.href).href;
   $("#settingsError").hidden = true;
   $("#settings").showModal();
   try {
@@ -553,6 +707,7 @@ function bind() {
     const ev = S.events.find((x) => x.id === card.dataset.id);
     const act = e.target.closest("[data-act]");
     if (act?.dataset.act === "link") return;
+    if (act?.dataset.act === "ics") { downloadIcs(ev); return; }
     if (act?.dataset.act === "fav") { setState(ev, { favorite: !ev.favorite }); if (!ev.favorite) toast("Gemerkt"); return; }
     if (act?.dataset.act === "hide") {
       const hide = !ev.hidden;
@@ -574,6 +729,7 @@ function bind() {
     if (b.dataset.dact === "fav") { await setState(ev, { favorite: !ev.favorite }); openDetail(ev.id); }
     if (b.dataset.dact === "hide") { await setState(ev, { hidden: !ev.hidden }); $("#detail").close(); }
     if (b.dataset.dact === "share") shareEvent(ev);
+    if (b.dataset.dact === "ics") downloadIcs(ev);
     if (b.dataset.dact === "delete") {
       if (b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.textContent = "Wirklich löschen? Nochmal tippen"; return; }
       try { await api(`/api/events/${encodeURIComponent(ev.id)}`, { method: "DELETE" }); $("#detail").close(); await loadEvents(); toast("Termin gelöscht"); }
@@ -632,7 +788,7 @@ async function main() {
   }
   const st = await pollStatus();
   if (st && !st.last_finished && !st.runs.length && S.settings.home_query && !st.running) startRefresh();
-  if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 }
 
 main();

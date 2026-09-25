@@ -7,6 +7,7 @@ iCal-Feed (.ics) an. Diese Quelle liest beides – ohne API-Key.
 from __future__ import annotations
 
 import hashlib
+import html as htmlmod
 import json
 import re
 from datetime import date, datetime, timedelta
@@ -23,7 +24,7 @@ EVENT_TYPES = {"event", "saleevent", "socialevent", "festival", "exhibitionevent
 
 
 def _clean(s) -> str:
-    return re.sub(r"\s+", " ", str(s or "")).strip()
+    return re.sub(r"\s+", " ", htmlmod.unescape(str(s or ""))).strip()
 
 
 def _to_date(v) -> date | None:
@@ -145,7 +146,7 @@ def parse_html(html: str, page_url: str) -> list[dict]:
 
         loc_el = el.find(attrs={"itemprop": "location"})
         location = _clean(loc_el.get_text(" ")) if loc_el else ""
-        item = _make(page_url, _clean(prop("name")), prop("startDate"), prop("endDate"), prop("description"),
+        item = _make(page_url, _clean(prop("name")), prop("startDate") or prop("date"), prop("endDate"), prop("description"),
                      prop("url"), prop("image"), location)
         if item:
             out.append(item)

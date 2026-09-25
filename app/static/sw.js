@@ -1,7 +1,9 @@
 /* Service Worker: App offline startbar machen, letzte Termine zwischenspeichern */
-const CACHE = "flohmarkt-v1";
-const SHELL = ["/", "/static/style.css", "/static/app.js", "/icon.svg", "/manifest.webmanifest",
-  "/static/vendor/leaflet/leaflet.js", "/static/vendor/leaflet/leaflet.css"];
+const CACHE = "flohmarkt-v2";
+const SHELL = ["./", "static/style.css", "static/app.js", "static/mode.js", "icon.svg", "manifest.webmanifest",
+  "static/vendor/leaflet/leaflet.js", "static/vendor/leaflet/leaflet.css"];
+const SCOPE = new URL(self.registration.scope).pathname;
+const rel = (pathname) => (pathname.startsWith(SCOPE) ? pathname.slice(SCOPE.length) : pathname) || "./";
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -17,11 +19,12 @@ self.addEventListener("fetch", (e) => {
   // Immer zuerst frisch vom Server holen, bei fehlender Verbindung aus dem Zwischenspeicher
   e.respondWith(
     fetch(e.request).then((res) => {
-      if (res.ok && (SHELL.includes(url.pathname) || url.pathname === "/api/events" || url.pathname === "/api/settings")) {
+      const p = rel(url.pathname);
+      if (res.ok && (SHELL.includes(p) || ["api/events", "api/settings", "data/events.json"].includes(p))) {
         const copy = res.clone();
         caches.open(CACHE).then((c) => c.put(e.request, copy));
       }
       return res;
-    }).catch(() => caches.match(e.request))
+    }).catch(() => caches.match(e.request, { ignoreSearch: true }))
   );
 });

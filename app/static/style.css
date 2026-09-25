@@ -299,3 +299,10 @@ legend { font-family: var(--display); font-weight: 800; padding-inline: 6px; }
 @media (prefers-reduced-motion: reduce) {
   .icon-btn.spinning svg { animation: none; }
 }
+
+/* Art-Knöpfe über der Liste: auf dem Handy seitlich wischbar */
+.results > .cat-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.results > .cat-chips::-webkit-scrollbar { display: none; }
+.results > .cat-chips .cat-chip { flex: none; }
+@media (min-width: 900px) { .results > .cat-chips { flex-wrap: wrap; } }
+html.static-mode .server-only, html:not(.static-mode) .static-only { display: none !important; }

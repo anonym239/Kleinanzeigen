@@ -37,7 +37,8 @@ CREATE TABLE IF NOT EXISTS events (
     first_seen REAL NOT NULL,
     last_seen REAL NOT NULL,
     manual INTEGER DEFAULT 0,
-    detail_fetched INTEGER DEFAULT 0
+    detail_fetched INTEGER DEFAULT 0,
+    relevant INTEGER DEFAULT 1
 );
 CREATE INDEX IF NOT EXISTS idx_events_start ON events(start_date);
 CREATE TABLE IF NOT EXISTS user_state (
@@ -59,7 +60,7 @@ DEFAULT_SETTINGS = {
     "home_label": "",
     "home_lat": None,
     "home_lon": None,
-    "radius_km": 30,
+    "radius_km": 50,
     "days_ahead": 14,
     "refresh_hours": 3,
     "search_terms": [
@@ -83,6 +84,9 @@ def connect():
                 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
                 c = sqlite3.connect(path)
                 c.executescript(SCHEMA)
+                cols = {r[1] for r in c.execute("PRAGMA table_info(events)")}
+                if "relevant" not in cols:  # ältere Datenbanken nachrüsten
+                    c.execute("ALTER TABLE events ADD COLUMN relevant INTEGER DEFAULT 1")
                 c.execute("PRAGMA journal_mode=WAL")
                 c.commit()
                 c.close()
@@ -137,7 +141,7 @@ def geocache_put(query: str, res) -> None:
 EVENT_FIELDS = [
     "title", "description", "url", "image", "category", "start_date", "end_date", "date_certain",
     "time_text", "location", "address", "lat", "lon", "price", "is_service", "posted_at", "manual",
-    "detail_fetched",
+    "detail_fetched", "relevant",
 ]
 
 
@@ -190,9 +194,9 @@ def list_events(undated_max_age_days: int = 21) -> list[dict]:
         rows = c.execute(
             "SELECT e.*, COALESCE(u.favorite,0) favorite, COALESCE(u.hidden,0) hidden, COALESCE(u.note,'') note "
             "FROM events e LEFT JOIN user_state u ON u.event_id = e.id "
-            "WHERE (COALESCE(e.end_date, e.start_date) >= ?) "
+            "WHERE e.relevant = 1 AND ((COALESCE(e.end_date, e.start_date) >= ?) "
             "   OR (e.start_date IS NULL AND e.last_seen >= ?) "
-            "   OR COALESCE(u.favorite,0) = 1 "
+            "   OR COALESCE(u.favorite,0) = 1) "
             "ORDER BY e.start_date IS NULL, e.start_date, e.first_seen DESC",
             ((today - timedelta(days=1)).isoformat(), min_seen),
         ).fetchall()

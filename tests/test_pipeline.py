@@ -35,7 +35,7 @@ def test_full_run(monkeypatch):
     assert "Lindenstraße" in ev["address"]
     assert ev["lat"] == 50.94  # Koordinaten aus der Detailseite
     assert ev["detail_fetched"] == 1
-    assert any("k0l945r30" in u for u in requested)
+    assert any("k0l945r50" in u for u in requested)
     # Zweiter Lauf lädt die Detailseite nicht erneut
     requested.clear()
     scraper.run_all()

@@ -7,7 +7,7 @@ import time
 from datetime import date, timedelta
 
 from . import db, geo
-from .classify import classify, is_service_ad
+from .classify import _EVENT_WORDS, classify, is_event_ad, is_service_ad
 from .dateparse import parse_event_date, parse_time_text
 from .sources import events_page, kleinanzeigen
 from .sources.base import make_client
@@ -32,6 +32,8 @@ def _geocode_event(ev: dict) -> None:
 def _kleinanzeigen_event(ad: dict) -> dict:
     text = f"{ad['title']}\n{ad.get('description', '')}"
     parsed = parse_event_date(text, ad["posted"])
+    time_text = parse_time_text(text) or ""
+    relevant = is_event_ad(ad["title"], ad.get("description", ""), ad.get("price", ""), bool(parsed), bool(time_text))
     return {
         "id": f"ka:{ad['ad_id']}",
         "source": "kleinanzeigen",
@@ -43,7 +45,7 @@ def _kleinanzeigen_event(ad: dict) -> dict:
         "start_date": parsed.start.isoformat() if parsed else None,
         "end_date": parsed.end.isoformat() if parsed else None,
         "date_certain": int(bool(parsed and parsed.certain)),
-        "time_text": parse_time_text(text) or "",
+        "time_text": time_text,
         "location": ad.get("location", ""),
         "address": ad.get("address") or ad.get("location", ""),
         "lat": ad.get("lat"),
@@ -52,6 +54,7 @@ def _kleinanzeigen_event(ad: dict) -> dict:
         "is_service": int(is_service_ad(ad["title"], ad.get("description", ""))),
         "posted_at": ad["posted"].isoformat(),
         "detail_fetched": int(bool(ad.get("detail_fetched"))),
+        "relevant": int(relevant),
     }
 
 
@@ -61,7 +64,10 @@ def _run_kleinanzeigen(settings: dict) -> tuple[int, int]:
         def needs_detail(ad: dict) -> bool:
             if f"ka:{ad['ad_id']}" in db.known_detail_ids([f"ka:{ad['ad_id']}"]):
                 return False  # schon vollständig gelesen
-            # Firmen-Werbung überspringen; sonst Detailseite für volle Beschreibung und genaue Adresse laden
+            # Firmen-Werbung und offensichtliche Einzelartikel überspringen;
+            # sonst Detailseite für volle Beschreibung und genaue Adresse laden
+            if not _EVENT_WORDS.search(f"{ad['title']} {ad['description']}"):
+                return False
             return not is_service_ad(ad["title"], ad["description"])
 
         for ad in kleinanzeigen.scrape(client, settings, needs_detail, lambda m: log.warning(m)):
@@ -70,11 +76,12 @@ def _run_kleinanzeigen(settings: dict) -> tuple[int, int]:
             if existing and existing["detail_fetched"] and not ev["detail_fetched"]:
                 # Bereits aus der Detailseite gelesene Daten nicht durch die gekürzte Vorschau überschreiben
                 for k in ("description", "address", "lat", "lon", "start_date", "end_date", "date_certain",
-                          "time_text", "detail_fetched", "image", "is_service", "category"):
+                          "time_text", "detail_fetched", "image", "is_service", "category", "relevant"):
                     ev[k] = existing[k]
-            _geocode_event(ev)
-            found += 1
-            new += db.upsert_event(ev)
+            if ev["relevant"]:
+                _geocode_event(ev)  # Einzelartikel werden nur gemerkt, nicht verortet
+            found += ev["relevant"]
+            new += db.upsert_event(ev) and ev["relevant"]
             state["message"] = f"Kleinanzeigen: {found} Anzeigen gelesen …"
     return found, new
 
