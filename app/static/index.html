@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Flohmarkt-Finder</title>
+<meta name="theme-color" content="#0e6f60">
+<meta name="description" content="Flohmärkte, Hofflohmärkte und Haushaltsauflösungen in der Nähe">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon.svg">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&display=swap">
+<link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-row">
+    <a class="brand" href="/" aria-label="Flohmarkt-Finder Startseite">
+      <svg class="brand-tag" viewBox="0 0 32 32" aria-hidden="true"><path d="M4 16 14 4h14v24H14Z" /><circle cx="11" cy="16" r="2.4" /></svg>
+      <span>Flohmarkt-Finder</span>
+    </a>
+    <button class="home-chip" id="homeChip" type="button" title="Wohnort und Umkreis ändern">
+      <span id="homeChipText">Wohnort festlegen</span>
+    </button>
+    <div class="topbar-actions">
+      <button class="icon-btn" id="refreshBtn" type="button" title="Jetzt nach neuen Terminen suchen">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v5h-5"/></svg>
+        <span class="btn-label">Aktualisieren</span>
+      </button>
+      <button class="icon-btn" id="settingsBtn" type="button" title="Einstellungen">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>
+        <span class="btn-label">Einstellungen</span>
+      </button>
+    </div>
+  </div>
+  <nav class="range-bar" id="rangeBar" aria-label="Zeitraum">
+    <button type="button" data-range="today">Heute</button>
+    <button type="button" data-range="weekend">Dieses Wochenende</button>
+    <button type="button" data-range="nextweekend">Nächstes Wochenende</button>
+    <button type="button" data-range="days">Nächste 14 Tage</button>
+    <button type="button" data-range="all">Alle</button>
+  </nav>
+  <div class="status-line" id="statusLine" hidden></div>
+</header>
+
+<div class="layout" id="layout">
+  <aside class="filters" id="filters" aria-label="Filter">
+    <div class="filters-head">
+      <h2>Filter</h2>
+      <button class="link-btn" id="resetFilters" type="button">Zurücksetzen</button>
+      <button class="icon-btn close-filters" id="closeFilters" type="button" aria-label="Filter schließen">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+
+    <label class="field">
+      <span class="field-label">Suche</span>
+      <input type="search" id="q" placeholder="z.B. Werkzeug, Möbel, Kirche …" autocomplete="off">
+    </label>
+
+    <div class="field">
+      <span class="field-label">Art</span>
+      <div class="cat-chips" id="catChips"></div>
+    </div>
+
+    <div class="field">
+      <label class="field-label" for="radius">Umkreis: <strong id="radiusOut">30 km</strong></label>
+      <input type="range" id="radius" min="5" max="200" step="5" value="30">
+      <p class="hint" id="radiusHint"></p>
+    </div>
+
+    <div class="field">
+      <span class="field-label">Anzeigen</span>
+      <label class="switch"><input type="checkbox" id="weekendOnly"><span>Nur Samstag &amp; Sonntag</span></label>
+      <label class="switch"><input type="checkbox" id="favOnly"><span>Nur gemerkte</span></label>
+      <label class="switch"><input type="checkbox" id="undated"><span>Auch ohne erkanntes Datum</span></label>
+      <label class="switch"><input type="checkbox" id="noLocation"><span>Auch ohne bekannten Ort</span></label>
+      <label class="switch"><input type="checkbox" id="services"><span>Firmen-Werbung (Entrümpler, Ankauf)</span></label>
+      <label class="switch"><input type="checkbox" id="showHidden"><span>Ausgeblendete wieder zeigen</span></label>
+    </div>
+
+    <label class="field">
+      <span class="field-label">Quelle</span>
+      <select id="source"><option value="">Alle Quellen</option></select>
+    </label>
+
+    <label class="field">
+      <span class="field-label">Sortieren nach</span>
+      <select id="sort">
+        <option value="date">Datum</option>
+        <option value="distance">Entfernung</option>
+        <option value="new">Neu gefunden</option>
+      </select>
+    </label>
+
+    <button class="btn primary show-results" id="showResults" type="button">Ergebnisse zeigen</button>
+  </aside>
+
+  <main class="results">
+    <div class="results-bar">
+      <p class="count" id="count" aria-live="polite">Lade Termine …</p>
+      <div class="results-tools">
+        <button class="btn ghost filter-toggle" id="openFilters" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18M6 12h12M10 19h4"/></svg>
+          Filter <span class="badge-count" id="filterCount" hidden></span>
+        </button>
+        <div class="view-toggle" role="tablist" aria-label="Ansicht">
+          <button type="button" role="tab" id="viewList" aria-selected="true">Liste</button>
+          <button type="button" role="tab" id="viewMap" aria-selected="false">Karte</button>
+        </div>
+      </div>
+    </div>
+
+    <section class="welcome" id="welcome" hidden>
+      <h1>Wo wohnst du?</h1>
+      <p>Gib deine Postleitzahl oder deinen Ort ein. Dann sucht der Finder Flohmärkte, Hofflohmärkte und Haushaltsauflösungen in deiner Nähe.</p>
+      <form id="welcomeForm" class="welcome-form">
+        <input id="welcomeQuery" type="text" inputmode="text" placeholder="z.B. 50667 oder Köln" required>
+        <select id="welcomeRadius" aria-label="Umkreis">
+          <option value="10">10 km</option><option value="20">20 km</option>
+          <option value="30" selected>30 km</option><option value="50">50 km</option><option value="100">100 km</option>
+        </select>
+        <button class="btn primary" type="submit">Los geht's</button>
+      </form>
+      <p class="form-error" id="welcomeError" hidden></p>
+    </section>
+
+    <div id="list" class="list"></div>
+  </main>
+  <div id="mapWrap" class="map-wrap" hidden><div id="map"></div></div>
+</div>
+
+<button class="fab" id="addBtn" type="button" title="Eigenen Termin eintragen">
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+  <span>Termin eintragen</span>
+</button>
+
+<!-- Detailansicht -->
+<dialog id="detail" class="sheet">
+  <div class="sheet-inner" id="detailBody"></div>
+</dialog>
+
+<!-- Einstellungen -->
+<dialog id="settings" class="sheet">
+  <form class="sheet-inner" id="settingsForm" method="dialog">
+    <div class="sheet-head">
+      <h2>Einstellungen</h2>
+      <button class="icon-btn" value="cancel" formnovalidate aria-label="Schließen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    </div>
+
+    <fieldset>
+      <legend>Wohnort &amp; Umkreis</legend>
+      <label class="field"><span class="field-label">PLZ oder Ort</span>
+        <input id="setHome" type="text" placeholder="z.B. 50667 oder Köln"></label>
+      <p class="hint" id="setHomeLabel"></p>
+      <label class="field"><span class="field-label">Suchradius bei Kleinanzeigen (km)</span>
+        <input id="setRadius" type="number" min="5" max="200" step="5"></label>
+      <label class="field"><span class="field-label">„Nächste Tage“ umfasst</span>
+        <input id="setDays" type="number" min="1" max="90"></label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Ansicht</legend>
+      <div class="field"><span class="field-label">Schriftgröße</span>
+        <div class="seg" id="fontSeg">
+          <button type="button" data-font="1">Normal</button>
+          <button type="button" data-font="1.15">Groß</button>
+          <button type="button" data-font="1.3">Sehr groß</button>
+        </div>
+      </div>
+      <div class="field"><span class="field-label">Farben</span>
+        <div class="seg" id="themeSeg">
+          <button type="button" data-theme-set="">Automatisch</button>
+          <button type="button" data-theme-set="light">Hell</button>
+          <button type="button" data-theme-set="dark">Dunkel</button>
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Suche</legend>
+      <label class="switch"><input type="checkbox" id="setKa"><span>Kleinanzeigen durchsuchen</span></label>
+      <label class="field"><span class="field-label">Suchbegriffe (einer pro Zeile)</span>
+        <textarea id="setTerms" rows="7"></textarea></label>
+      <label class="field"><span class="field-label">Seiten pro Suchbegriff</span>
+        <input id="setPages" type="number" min="1" max="5"></label>
+      <label class="field"><span class="field-label">Automatisch aktualisieren alle … Stunden</span>
+        <input id="setHours" type="number" min="0.5" max="48" step="0.5"></label>
+      <label class="field"><span class="field-label">Weitere Webseiten mit Terminkalender (eine Adresse pro Zeile)</span>
+        <textarea id="setUrls" rows="4" placeholder="https://www.beispiel-stadt.de/veranstaltungen&#10;https://…/kalender.ics"></textarea></label>
+      <p class="hint">Funktioniert mit Seiten, die ihre Termine als schema.org-Event anbieten, und mit iCal-Adressen (.ics), z.B. von der Stadt, der Kirchengemeinde oder einem Veranstalter.</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Kalender</legend>
+      <p class="hint">Diese Adresse im Handy-Kalender abonnieren. Dann stehen alle gemerkten Termine automatisch im Kalender:</p>
+      <div class="copy-row"><input id="icsUrl" type="text" readonly><button class="btn ghost" type="button" id="copyIcs">Kopieren</button></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Zustand der Quellen</legend>
+      <div id="sourceStatus" class="source-status"></div>
+      <button class="btn ghost" type="button" id="restoreHidden">Alle ausgeblendeten Termine wiederherstellen</button>
+    </fieldset>
+
+    <p class="form-error" id="settingsError" hidden></p>
+    <div class="sheet-actions">
+      <button class="btn ghost" value="cancel" formnovalidate>Abbrechen</button>
+      <button class="btn primary" id="saveSettings" type="button">Speichern</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Eigener Termin -->
+<dialog id="addDialog" class="sheet">
+  <form class="sheet-inner" id="addForm">
+    <div class="sheet-head">
+      <h2>Termin eintragen</h2>
+      <button class="icon-btn" type="button" data-close aria-label="Schließen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    </div>
+    <p class="hint">Zum Beispiel aus der Zeitung, vom Aushang im Supermarkt oder vom Nachbarn gehört.</p>
+    <label class="field"><span class="field-label">Was?</span>
+      <input id="addTitle" required minlength="2" placeholder="z.B. Hofflohmarkt Lindenstraße"></label>
+    <label class="field"><span class="field-label">Art</span><select id="addCat"></select></label>
+    <div class="field-row">
+      <label class="field"><span class="field-label">Von</span><input id="addStart" type="date" required></label>
+      <label class="field"><span class="field-label">Bis (optional)</span><input id="addEnd" type="date"></label>
+    </div>
+    <label class="field"><span class="field-label">Uhrzeit</span><input id="addTime" placeholder="z.B. 9–15 Uhr"></label>
+    <label class="field"><span class="field-label">Wo? (Adresse oder Ort)</span><input id="addAddress" placeholder="Lindenstraße 5, 50667 Köln"></label>
+    <label class="field"><span class="field-label">Notiz / Beschreibung</span><textarea id="addDesc" rows="3"></textarea></label>
+    <label class="field"><span class="field-label">Link (optional)</span><input id="addUrl" type="url" placeholder="https://"></label>
+    <p class="form-error" id="addError" hidden></p>
+    <div class="sheet-actions">
+      <button class="btn ghost" type="button" data-close>Abbrechen</button>
+      <button class="btn primary" type="submit">Speichern</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script src="/static/vendor/leaflet/leaflet.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+services:
+  flohmarkt:
+    build: .
+    container_name: flohmarkt-finder
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/data
+    environment:
+      - TZ=Europe/Berlin
+      # Optional: Passwort für den Zugriff (Benutzername beliebig)
+      # - FLOHMARKT_PASSWORD=geheim

@@ -1,0 +1,638 @@
+/* Flohmarkt-Finder – Oberfläche (ohne Build-Schritt, reines JavaScript) */
+"use strict";
+
+const $ = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+
+const store = {
+  get(key, fallback) {
+    try { const v = localStorage.getItem(key); return v === null ? fallback : JSON.parse(v); } catch { return fallback; }
+  },
+  set(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* egal */ } },
+};
+
+const DEFAULT_FILTERS = {
+  range: "days", cats: [], q: "", radius: null, weekendOnly: false, favOnly: false,
+  undated: true, noLocation: true, services: false, showHidden: false, source: "", sort: "date",
+};
+const CAT_COLORS = ["flohmarkt", "hof", "haushalt", "kinder", "antik", "sonstiges"];
+
+const S = {
+  events: [], settings: {}, categories: {}, today: null,
+  filters: { ...DEFAULT_FILTERS, ...store.get("filters", {}) },
+  view: store.get("view", "list"),
+  map: null, mapLayer: null, prevVisit: 0, polling: null,
+};
+
+/* ---------- Hilfsfunktionen ---------- */
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const parseISO = (iso) => { const [y, m, d] = iso.split("-").map(Number); return new Date(y, m - 1, d); };
+const toISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+const dayDiff = (a, b) => Math.round((parseISO(b) - parseISO(a)) / 86400000);
+const fmtDay = (iso) => parseISO(iso).toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long" });
+const fmtShort = (iso) => parseISO(iso).toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "numeric" });
+
+function relDay(iso) {
+  const n = dayDiff(S.today, iso);
+  if (n === 0) return "heute";
+  if (n === 1) return "morgen";
+  if (n === 2) return "übermorgen";
+  if (n > 2) return `in ${n} Tagen`;
+  if (n === -1) return "gestern";
+  return `vor ${-n} Tagen`;
+}
+
+function icon(name) {
+  const p = {
+    cal: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+    pin: '<path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11Z"/><circle cx="12" cy="10" r="2.5"/>',
+    star: '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9Z"/>',
+    route: '<circle cx="6" cy="19" r="2"/><circle cx="18" cy="5" r="2"/><path d="M8 19h7a3.5 3.5 0 0 0 0-7H9a3.5 3.5 0 0 1 0-7h7"/>',
+    eyeoff: '<path d="M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c6 0 9.5 7 9.5 7a17 17 0 0 1-3 3.8M6.4 6.4A17 17 0 0 0 2.5 12S6 19 12 19a9.5 9.5 0 0 0 5.6-1.8M9.9 9.9a3 3 0 0 0 4.2 4.2"/>',
+    eye: '<path d="M2.5 12S6 5 12 5s9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7Z"/><circle cx="12" cy="12" r="3"/>',
+    ext: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
+    share: '<circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="m8.2 10.8 7.6-4.4M8.2 13.2l7.6 4.4"/>',
+    clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    tag: '<path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9Z"/><circle cx="8" cy="8" r="1.5"/>',
+  }[name];
+  return `<svg viewBox="0 0 24 24" aria-hidden="true">${p}</svg>`;
+}
+
+function toast(msg, ms = 3500) {
+  const t = $("#toast");
+  t.textContent = msg; t.hidden = false;
+  clearTimeout(toast._t); toast._t = setTimeout(() => { t.hidden = true; }, ms);
+}
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts });
+  if (!r.ok) {
+    let msg = `Fehler ${r.status}`;
+    try { const j = await r.json(); if (j.detail) msg = typeof j.detail === "string" ? j.detail : "Bitte Eingaben prüfen."; } catch { /* egal */ }
+    throw new Error(msg);
+  }
+  return r.json();
+}
+
+/* ---------- Datum-Bereiche ---------- */
+function rangeBounds(range) {
+  const t = parseISO(S.today);
+  const dow = t.getDay(); // So=0, Sa=6
+  let sat = addDays(t, (6 - dow + 7) % 7);
+  if (dow === 0) sat = addDays(t, -1);
+  switch (range) {
+    case "today": return [t, t];
+    case "weekend": return [dow === 0 ? t : sat, addDays(sat, 1)];
+    case "nextweekend": return [addDays(sat, 7), addDays(sat, 8)];
+    case "days": return [t, addDays(t, (S.settings.days_ahead || 14))];
+    default: return [t, null];
+  }
+}
+
+function overlapsWeekend(ev) {
+  const s = parseISO(ev.start_date), e = parseISO(ev.end_date || ev.start_date);
+  if (dayDiff(ev.start_date, ev.end_date || ev.start_date) >= 6) return true;
+  for (let d = new Date(s); d <= e; d = addDays(d, 1)) if (d.getDay() === 0 || d.getDay() === 6) return true;
+  return false;
+}
+
+/* ---------- Filtern ---------- */
+function radiusValue() { return S.filters.radius ?? S.settings.radius_km ?? 30; }
+
+function passesBase(ev, f, skipCats = false) {
+  if (ev.hidden && !f.showHidden) return false;
+  if (ev.is_service && !f.services) return false;
+  if (f.favOnly && !ev.favorite) return false;
+  if (f.source && ev.source !== f.source) return false;
+  if (!skipCats && f.cats.length && !f.cats.includes(ev.category)) return false;
+  if (f.q) {
+    const hay = `${ev.title} ${ev.description} ${ev.location} ${ev.address} ${ev.note}`.toLowerCase();
+    if (!f.q.toLowerCase().split(/\s+/).filter(Boolean).every((w) => hay.includes(w))) return false;
+  }
+  if (ev.distance_km == null) {
+    if (!f.noLocation && S.settings.home_lat != null) return false;
+  } else if (S.settings.home_lat != null && ev.distance_km > radiusValue()) return false;
+
+  if (!ev.start_date) return f.undated || f.favOnly;
+  const [from, to] = rangeBounds(f.range);
+  const s = parseISO(ev.start_date), e = parseISO(ev.end_date || ev.start_date);
+  if (e < from) return false;
+  if (to && s > to) return false;
+  if (f.weekendOnly && !overlapsWeekend(ev)) return false;
+  return true;
+}
+
+function filtered() {
+  const f = S.filters;
+  const list = S.events.filter((ev) => passesBase(ev, f));
+  const byNew = (a, b) => b.first_seen - a.first_seen;
+  if (f.sort === "distance") list.sort((a, b) => (a.distance_km ?? 9999) - (b.distance_km ?? 9999));
+  else if (f.sort === "new") list.sort(byNew);
+  else list.sort((a, b) => {
+    if (!a.start_date !== !b.start_date) return a.start_date ? -1 : 1;
+    if (a.start_date !== b.start_date) return (a.start_date || "").localeCompare(b.start_date || "");
+    return (a.distance_km ?? 9999) - (b.distance_km ?? 9999);
+  });
+  return list;
+}
+
+function activeFilterCount() {
+  const f = S.filters, d = DEFAULT_FILTERS;
+  let n = f.cats.length ? 1 : 0;
+  for (const k of ["q", "weekendOnly", "favOnly", "undated", "noLocation", "services", "showHidden", "source"]) if (f[k] !== d[k]) n++;
+  if (f.radius != null && f.radius !== S.settings.radius_km) n++;
+  return n;
+}
+
+/* ---------- Darstellung ---------- */
+function isNew(ev) { return S.prevVisit && ev.first_seen > S.prevVisit; }
+
+function dateLine(ev) {
+  if (!ev.start_date) return `<strong>Datum nicht erkannt</strong> · bitte Anzeige lesen`;
+  const multi = ev.end_date && ev.end_date !== ev.start_date;
+  let txt = multi ? `${fmtShort(ev.start_date)} – ${fmtShort(ev.end_date)}` : fmtDay(ev.start_date);
+  if (!ev.date_certain) txt = `vermutlich ${txt}`;
+  return `<strong>${esc(txt)}</strong>${ev.time_text ? ` · ${esc(ev.time_text)}` : ""}`;
+}
+
+function placeLine(ev) {
+  const place = ev.address || ev.location || "Ort unbekannt";
+  const dist = ev.distance_km != null ? ` · <strong>${ev.distance_km.toLocaleString("de-DE")} km</strong>` : "";
+  return `${esc(place)}${dist}`;
+}
+
+function sourceLabel(src) { return src === "kleinanzeigen" ? "Kleinanzeigen" : src; }
+
+function routeUrl(ev) {
+  const dest = ev.lat != null ? `${ev.lat},${ev.lon}` : encodeURIComponent(ev.address || ev.location || "");
+  return `https://www.google.com/maps/dir/?api=1&destination=${dest}`;
+}
+
+function cardHTML(ev) {
+  const img = ev.image ? `<img class="thumb" src="${esc(ev.image)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.closest('.card').classList.add('no-img');this.remove()">` : "";
+  const pills = [
+    `<span class="pill cat">${esc(ev.category_label)}</span>`,
+    isNew(ev) ? `<span class="pill new">NEU</span>` : "",
+    ev.is_service ? `<span class="pill warn">Firma/Werbung</span>` : "",
+    `<span class="pill">${esc(sourceLabel(ev.source))}</span>`,
+    ev.price && !/^(VB|zu verschenken)?$/i.test(ev.price) ? `<span class="pill">${esc(ev.price)}</span>` : "",
+  ].join("");
+  return `
+  <article class="card ${img ? "" : "no-img"} ${ev.hidden ? "is-hidden" : ""}" style="--cat: var(--c-${CAT_COLORS.includes(ev.category) ? ev.category : "sonstiges"})" data-id="${esc(ev.id)}" tabindex="0">
+    ${img}
+    <div class="card-body">
+      <div class="card-top">${pills}</div>
+      <h3>${esc(ev.title)}</h3>
+      <div class="meta">
+        <div>${icon("cal")}<span>${dateLine(ev)}</span></div>
+        <div>${icon("pin")}<span>${placeLine(ev)}</span></div>
+      </div>
+      ${ev.description ? `<p class="snippet">${esc(ev.description)}</p>` : ""}
+      <div class="card-actions">
+        <button class="act fav" type="button" data-act="fav" aria-pressed="${ev.favorite}" title="Merken">${icon("star")}<span>${ev.favorite ? "Gemerkt" : "Merken"}</span></button>
+        <a class="act" href="${routeUrl(ev)}" target="_blank" rel="noopener" data-act="link" title="Route planen">${icon("route")}<span>Route</span></a>
+        ${ev.start_date ? `<a class="act" href="/api/events/${encodeURIComponent(ev.id)}/ics" data-act="link" title="In den Kalender">${icon("cal")}<span>Kalender</span></a>` : ""}
+        <button class="act" type="button" data-act="hide" title="${ev.hidden ? "Wieder anzeigen" : "Ausblenden"}">${icon(ev.hidden ? "eye" : "eyeoff")}<span>${ev.hidden ? "Einblenden" : "Ausblenden"}</span></button>
+      </div>
+    </div>
+  </article>`;
+}
+
+function renderList(list) {
+  const el = $("#list");
+  if (!list.length) {
+    const noData = !S.events.length;
+    el.innerHTML = `<div class="empty">
+      <h2>${noData ? "Noch keine Termine geladen" : "Keine Termine für diese Auswahl"}</h2>
+      <p>${noData ? "Tippe auf „Aktualisieren“. Die erste Suche dauert ein paar Minuten." : "Probiere einen längeren Zeitraum, einen größeren Umkreis oder setze die Filter zurück."}</p>
+      ${noData ? `<button class="btn primary" type="button" id="emptyRefresh">Jetzt suchen</button>` : `<button class="btn ghost" type="button" id="emptyReset">Filter zurücksetzen</button>`}
+    </div>`;
+    $("#emptyRefresh")?.addEventListener("click", startRefresh);
+    $("#emptyReset")?.addEventListener("click", resetFilters);
+    return;
+  }
+  if (S.filters.sort !== "date") { el.innerHTML = list.map(cardHTML).join(""); return; }
+  const groups = new Map();
+  for (const ev of list) {
+    const key = ev.start_date && ev.start_date < S.today ? S.today : (ev.start_date || "");
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(ev);
+  }
+  let html = "";
+  for (const [day, evs] of groups) {
+    const head = day
+      ? `<span class="day-tag">${esc(fmtDay(day))}</span><span class="day-rel">${relDay(day)}</span>`
+      : `<span class="day-tag muted">Ohne erkanntes Datum</span><span class="day-rel">Datum steht evtl. im Text</span>`;
+    html += `<div class="day-head">${head}<span class="day-count">${evs.length}</span></div>` + evs.map(cardHTML).join("");
+  }
+  el.innerHTML = html;
+}
+
+function renderCats() {
+  const f = S.filters;
+  const counts = {};
+  for (const ev of S.events) if (passesBase(ev, f, true)) counts[ev.category] = (counts[ev.category] || 0) + 1;
+  $("#catChips").innerHTML = Object.entries(S.categories).map(([key, label]) => `
+    <button type="button" class="cat-chip" style="--cat: var(--c-${key})" data-cat="${key}" aria-pressed="${f.cats.includes(key)}">
+      <span class="dot"></span>${esc(label)} <span class="n">${counts[key] || 0}</span>
+    </button>`).join("");
+}
+
+function renderSources() {
+  const sel = $("#source");
+  const sources = [...new Set(S.events.map((e) => e.source))].sort();
+  sel.innerHTML = `<option value="">Alle Quellen</option>` + sources.map((s) => `<option value="${esc(s)}">${esc(sourceLabel(s))}</option>`).join("");
+  sel.value = sources.includes(S.filters.source) ? S.filters.source : "";
+}
+
+function syncControls() {
+  const f = S.filters;
+  $$("#rangeBar button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.range === f.range)));
+  $('#rangeBar [data-range="days"]').textContent = `Nächste ${S.settings.days_ahead || 14} Tage`;
+  $("#q").value = f.q;
+  $("#radius").value = radiusValue();
+  $("#radiusOut").textContent = `${radiusValue()} km`;
+  $("#radiusHint").textContent = S.settings.home_lat == null ? "Erst Wohnort festlegen, dann wirkt der Umkreis." : `um ${S.settings.home_query}`;
+  for (const k of ["weekendOnly", "favOnly", "undated", "noLocation", "services", "showHidden"]) $("#" + k).checked = f[k];
+  $("#sort").value = f.sort;
+  const n = activeFilterCount();
+  $("#filterCount").hidden = !n; $("#filterCount").textContent = n;
+  $("#homeChipText").textContent = S.settings.home_query ? `${S.settings.home_query} · ${radiusValue()} km` : "Wohnort festlegen";
+}
+
+function render() {
+  store.set("filters", S.filters);
+  const list = filtered();
+  const undated = list.filter((e) => !e.start_date).length;
+  $("#count").textContent = `${list.length} ${list.length === 1 ? "Termin" : "Termine"}${undated ? ` (davon ${undated} ohne Datum)` : ""}`;
+  $("#welcome").hidden = !!S.settings.home_query;
+  syncControls();
+  renderCats();
+  renderList(list);
+  applyView();
+  if (S.map) renderMap(list);
+}
+
+/* ---------- Karte ---------- */
+const isSplit = () => window.matchMedia("(min-width: 1300px)").matches;
+
+function applyView() {
+  const split = isSplit();
+  $("#layout").classList.toggle("split", split);
+  const showMap = split || S.view === "map";
+  $("#list").hidden = !split && S.view === "map";
+  $("#mapWrap").hidden = !showMap;
+  $("#viewList").setAttribute("aria-selected", String(S.view !== "map"));
+  $("#viewMap").setAttribute("aria-selected", String(S.view === "map"));
+  if (showMap) {
+    if (!S.map) initMap();
+    else setTimeout(() => S.map.invalidateSize(), 50);
+  }
+}
+
+function initMap() {
+  if (!window.L) { $("#map").innerHTML = '<p class="empty">Die Karte konnte nicht geladen werden (keine Internetverbindung?).</p>'; return; }
+  S.map = L.map("map", { scrollWheelZoom: true });
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  }).addTo(S.map);
+  S.mapLayer = L.layerGroup().addTo(S.map);
+  S.map.setView([51.16, 10.45], 6);
+  renderMap(filtered(), true);
+}
+
+function renderMap(list, fit = true) {
+  if (!S.map) return;
+  S.mapLayer.clearLayers();
+  const css = getComputedStyle(document.documentElement);
+  const pts = [];
+  if (S.settings.home_lat != null) {
+    const home = [S.settings.home_lat, S.settings.home_lon];
+    L.marker(home, { icon: L.divIcon({ className: "", html: '<div class="home-marker"></div>', iconSize: [22, 22] }), title: "Zuhause" }).addTo(S.mapLayer);
+    L.circle(home, { radius: radiusValue() * 1000, color: css.getPropertyValue("--accent").trim(), weight: 1.5, fillOpacity: 0.04 }).addTo(S.mapLayer);
+    pts.push(home);
+  }
+  for (const ev of list) {
+    if (ev.lat == null) continue;
+    const color = css.getPropertyValue(`--c-${CAT_COLORS.includes(ev.category) ? ev.category : "sonstiges"}`).trim();
+    const m = L.circleMarker([ev.lat, ev.lon], { radius: ev.favorite ? 11 : 8, color: "#fff", weight: 2, fillColor: color, fillOpacity: 0.95 });
+    m.bindPopup(`<div class="map-pop"><strong>${esc(ev.title)}</strong>${dateLine(ev)}<br>${placeLine(ev)}<br><button class="btn primary" type="button" data-open="${esc(ev.id)}">Details</button></div>`);
+    m.addTo(S.mapLayer);
+    pts.push([ev.lat, ev.lon]);
+  }
+  if (fit && pts.length > 1) S.map.fitBounds(pts, { padding: [30, 30], maxZoom: 13 });
+  else if (fit && pts.length === 1) S.map.setView(pts[0], 11);
+}
+
+/* ---------- Detailansicht ---------- */
+function openDetail(id) {
+  const ev = S.events.find((e) => e.id === id);
+  if (!ev) return;
+  const body = $("#detailBody");
+  body.innerHTML = `
+    <div class="sheet-head">
+      <h2>${esc(ev.title)}</h2>
+      <button class="icon-btn" type="button" data-close aria-label="Schließen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    </div>
+    ${ev.image ? `<img class="detail-img" src="${esc(ev.image)}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : ""}
+    <div class="card-top">
+      <span class="pill cat" style="--cat: var(--c-${CAT_COLORS.includes(ev.category) ? ev.category : "sonstiges"})">${esc(ev.category_label)}</span>
+      ${isNew(ev) ? `<span class="pill new">NEU</span>` : ""}
+      ${ev.is_service ? `<span class="pill warn">Vermutlich Firma/Werbung</span>` : ""}
+    </div>
+    <dl class="detail-meta">
+      <dt>Wann</dt><dd>${dateLine(ev)}${ev.start_date ? ` <span class="hint">(${relDay(ev.start_date)})</span>` : ""}</dd>
+      <dt>Wo</dt><dd>${placeLine(ev)}</dd>
+      ${ev.price ? `<dt>Preis</dt><dd>${esc(ev.price)}</dd>` : ""}
+      <dt>Quelle</dt><dd>${esc(sourceLabel(ev.source))}${ev.posted_at ? `, eingestellt ${esc(parseISO(ev.posted_at).toLocaleDateString("de-DE"))}` : ""}</dd>
+    </dl>
+    ${!ev.date_certain && ev.start_date ? `<p class="hint">Das Datum wurde aus einem Wochentag im Text abgeleitet. Bitte in der Anzeige prüfen.</p>` : ""}
+    ${ev.description ? `<p class="detail-desc">${esc(ev.description)}</p>` : ""}
+    <div class="detail-actions">
+      <button class="btn ${ev.favorite ? "primary" : "ghost"}" type="button" data-dact="fav">${icon("star")} ${ev.favorite ? "Gemerkt" : "Merken"}</button>
+      ${ev.url ? `<a class="btn ghost" href="${esc(ev.url)}" target="_blank" rel="noopener">${icon("ext")} Anzeige öffnen</a>` : ""}
+      <a class="btn ghost" href="${routeUrl(ev)}" target="_blank" rel="noopener">${icon("route")} Route</a>
+      ${ev.start_date ? `<a class="btn ghost" href="/api/events/${encodeURIComponent(ev.id)}/ics">${icon("cal")} In den Kalender</a>` : ""}
+      <button class="btn ghost" type="button" data-dact="share">${icon("share")} Teilen</button>
+      <button class="btn ghost" type="button" data-dact="hide">${icon(ev.hidden ? "eye" : "eyeoff")} ${ev.hidden ? "Wieder anzeigen" : "Ausblenden"}</button>
+      ${ev.manual ? `<button class="btn danger" type="button" data-dact="delete">Termin löschen</button>` : ""}
+    </div>
+    <label class="field"><span class="field-label">Eigene Notiz</span>
+      <textarea id="noteField" rows="2" placeholder="z.B. Werkzeug anschauen, Bargeld mitnehmen">${esc(ev.note || "")}</textarea></label>
+    <p class="form-error" id="detailError" hidden></p>`;
+  body.dataset.id = id;
+  const dlg = $("#detail");
+  if (!dlg.open) dlg.showModal();
+  $("#noteField").addEventListener("change", (e) => setState(ev, { note: e.target.value }, false));
+}
+
+async function setState(ev, patch, rerender = true) {
+  try {
+    await api(`/api/events/${encodeURIComponent(ev.id)}/state`, { method: "PATCH", body: JSON.stringify(patch) });
+    Object.assign(ev, patch);
+    if (rerender) render();
+    if (patch.note !== undefined) toast("Notiz gespeichert");
+  } catch (e) { toast(e.message); }
+}
+
+async function shareEvent(ev) {
+  const text = `${ev.title}\n${ev.start_date ? fmtDay(ev.start_date) : ""} ${ev.time_text || ""}\n${ev.address || ev.location || ""}`.trim();
+  const url = ev.url || routeUrl(ev);
+  if (navigator.share) {
+    try { await navigator.share({ title: ev.title, text, url }); return; } catch { /* abgebrochen */ }
+  }
+  try { await navigator.clipboard.writeText(`${text}\n${url}`); toast("In die Zwischenablage kopiert – jetzt z.B. in WhatsApp einfügen"); }
+  catch { toast("Teilen wird von diesem Browser nicht unterstützt"); }
+}
+
+/* ---------- Aktualisieren ---------- */
+async function startRefresh() {
+  try {
+    await api("/api/refresh", { method: "POST" });
+    toast("Suche gestartet. Das kann ein paar Minuten dauern.");
+    pollStatus();
+  } catch (e) { toast(e.message); }
+}
+
+async function pollStatus() {
+  clearTimeout(S.polling);
+  let st;
+  try { st = await api("/api/status"); } catch { return; }
+  const line = $("#statusLine");
+  $("#refreshBtn").classList.toggle("spinning", st.running);
+  if (st.running) {
+    line.hidden = false; line.textContent = st.message || "Suche läuft …";
+    S.polling = setTimeout(pollStatus, 3000);
+    S.wasRunning = true;
+  } else {
+    line.hidden = true;
+    if (S.wasRunning) { S.wasRunning = false; await loadEvents(); toast("Fertig. Die Termine sind aktualisiert."); }
+  }
+  return st;
+}
+
+/* ---------- Einstellungen ---------- */
+function applyLook() {
+  const font = store.get("font", 1);
+  document.documentElement.style.setProperty("--font-scale", font);
+  const theme = store.get("theme", "");
+  if (theme) document.documentElement.dataset.theme = theme; else delete document.documentElement.dataset.theme;
+  $$("#fontSeg button").forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.font) === Number(font))));
+  $$("#themeSeg button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.themeSet === theme)));
+  measureTopbar();
+  if (S.map) setTimeout(() => { S.map.invalidateSize(); renderMap(filtered(), false); }, 60);
+}
+
+async function openSettings() {
+  const s = S.settings;
+  $("#setHome").value = s.home_query || "";
+  $("#setHomeLabel").textContent = s.home_label ? `Gefunden: ${s.home_label}` : "";
+  $("#setRadius").value = s.radius_km;
+  $("#setDays").value = s.days_ahead;
+  $("#setKa").checked = !!s.kleinanzeigen_enabled;
+  $("#setTerms").value = (s.search_terms || []).join("\n");
+  $("#setPages").value = s.kleinanzeigen_pages;
+  $("#setHours").value = s.refresh_hours;
+  $("#setUrls").value = (s.extra_urls || []).join("\n");
+  $("#icsUrl").value = `${location.origin}/api/favorites.ics`;
+  $("#settingsError").hidden = true;
+  $("#settings").showModal();
+  try {
+    const st = await api("/api/status");
+    const when = (ts) => ts ? new Date(ts * 1000).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" }) : "noch nie";
+    $("#sourceStatus").innerHTML = (st.runs.length ? st.runs.map((r) => `
+      <div class="src-row"><span class="state ${r.ok ? "" : "bad"}"></span>
+        <strong>${esc(sourceLabel(r.source))}</strong>
+        <small>${when(r.finished)} · ${r.ok ? `${r.found} gefunden, ${esc(r.message)}` : `Fehler: ${esc(r.message)}`}</small></div>`).join("")
+      : `<p class="hint">Es wurde noch nicht gesucht.</p>`) + `<p class="hint">Insgesamt ${st.total_events} Einträge gespeichert.</p>`;
+  } catch { /* egal */ }
+}
+
+async function saveSettings() {
+  const lines = (v) => v.split("\n").map((x) => x.trim()).filter(Boolean);
+  const body = {
+    home_query: $("#setHome").value.trim(),
+    radius_km: Number($("#setRadius").value) || 30,
+    days_ahead: Number($("#setDays").value) || 14,
+    kleinanzeigen_enabled: $("#setKa").checked,
+    search_terms: lines($("#setTerms").value),
+    kleinanzeigen_pages: Number($("#setPages").value) || 2,
+    refresh_hours: Number($("#setHours").value) || 3,
+    extra_urls: lines($("#setUrls").value),
+  };
+  const btn = $("#saveSettings");
+  btn.disabled = true; btn.textContent = "Speichere …";
+  try {
+    const before = S.settings;
+    S.settings = await api("/api/settings", { method: "PUT", body: JSON.stringify(body) });
+    S.filters.radius = null;
+    $("#settings").close();
+    const searchChanged = before.home_query !== S.settings.home_query || before.radius_km !== S.settings.radius_km ||
+      JSON.stringify(before.search_terms) !== JSON.stringify(S.settings.search_terms) ||
+      JSON.stringify(before.extra_urls) !== JSON.stringify(S.settings.extra_urls);
+    await loadEvents();
+    if (searchChanged) startRefresh(); else toast("Gespeichert");
+  } catch (e) {
+    $("#settingsError").textContent = e.message; $("#settingsError").hidden = false;
+  } finally { btn.disabled = false; btn.textContent = "Speichern"; }
+}
+
+/* ---------- Eigener Termin ---------- */
+function openAdd() {
+  $("#addForm").reset();
+  $("#addCat").innerHTML = Object.entries(S.categories).map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join("");
+  $("#addStart").value = S.today;
+  $("#addError").hidden = true;
+  $("#addDialog").showModal();
+}
+
+async function submitAdd(e) {
+  e.preventDefault();
+  const body = {
+    title: $("#addTitle").value.trim(), category: $("#addCat").value, start_date: $("#addStart").value,
+    end_date: $("#addEnd").value || null, time_text: $("#addTime").value.trim(), address: $("#addAddress").value.trim(),
+    description: $("#addDesc").value.trim(), url: $("#addUrl").value.trim(),
+  };
+  try {
+    await api("/api/events", { method: "POST", body: JSON.stringify(body) });
+    $("#addDialog").close();
+    await loadEvents();
+    toast("Termin gespeichert");
+  } catch (err) { $("#addError").textContent = err.message; $("#addError").hidden = false; }
+}
+
+/* ---------- Laden ---------- */
+async function loadEvents() {
+  const data = await api("/api/events");
+  S.events = data.events; S.categories = data.categories; S.today = data.today;
+  renderSources();
+  render();
+}
+
+function resetFilters() {
+  S.filters = { ...DEFAULT_FILTERS };
+  render();
+}
+
+function measureTopbar() {
+  document.documentElement.style.setProperty("--topbar-h", `${$(".topbar").offsetHeight}px`);
+}
+
+function bind() {
+  $("#rangeBar").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-range]"); if (!b) return;
+    S.filters.range = b.dataset.range; render();
+  });
+  let qT;
+  $("#q").addEventListener("input", (e) => { clearTimeout(qT); qT = setTimeout(() => { S.filters.q = e.target.value.trim(); render(); }, 200); });
+  $("#catChips").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-cat]"); if (!b) return;
+    const c = b.dataset.cat, cats = S.filters.cats;
+    S.filters.cats = cats.includes(c) ? cats.filter((x) => x !== c) : [...cats, c];
+    render();
+  });
+  $("#radius").addEventListener("input", (e) => { $("#radiusOut").textContent = `${e.target.value} km`; });
+  $("#radius").addEventListener("change", (e) => { S.filters.radius = Number(e.target.value); render(); });
+  for (const k of ["weekendOnly", "favOnly", "undated", "noLocation", "services", "showHidden"]) {
+    $("#" + k).addEventListener("change", (e) => { S.filters[k] = e.target.checked; render(); });
+  }
+  $("#source").addEventListener("change", (e) => { S.filters.source = e.target.value; render(); });
+  $("#sort").addEventListener("change", (e) => { S.filters.sort = e.target.value; render(); });
+  $("#resetFilters").addEventListener("click", resetFilters);
+
+  $("#openFilters").addEventListener("click", () => $("#filters").classList.add("open"));
+  $("#closeFilters").addEventListener("click", () => $("#filters").classList.remove("open"));
+  $("#showResults").addEventListener("click", () => { $("#filters").classList.remove("open"); window.scrollTo({ top: 0 }); });
+
+  $("#viewList").addEventListener("click", () => { S.view = "list"; store.set("view", "list"); applyView(); });
+  $("#viewMap").addEventListener("click", () => { S.view = "map"; store.set("view", "map"); applyView(); if (S.map) renderMap(filtered()); });
+
+  $("#list").addEventListener("click", (e) => {
+    const card = e.target.closest(".card"); if (!card) return;
+    const ev = S.events.find((x) => x.id === card.dataset.id);
+    const act = e.target.closest("[data-act]");
+    if (act?.dataset.act === "link") return;
+    if (act?.dataset.act === "fav") { setState(ev, { favorite: !ev.favorite }); if (!ev.favorite) toast("Gemerkt"); return; }
+    if (act?.dataset.act === "hide") {
+      const hide = !ev.hidden;
+      setState(ev, { hidden: hide });
+      if (hide) toast("Ausgeblendet. Zurückholen unter Filter → „Ausgeblendete wieder zeigen“.");
+      return;
+    }
+    openDetail(ev.id);
+  });
+  $("#list").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && e.target.classList.contains("card")) openDetail(e.target.dataset.id);
+  });
+  $("#map").addEventListener("click", (e) => { const b = e.target.closest("[data-open]"); if (b) openDetail(b.dataset.open); });
+
+  $("#detail").addEventListener("click", async (e) => {
+    if (e.target === $("#detail") || e.target.closest("[data-close]")) { $("#detail").close(); return; }
+    const b = e.target.closest("[data-dact]"); if (!b) return;
+    const ev = S.events.find((x) => x.id === $("#detailBody").dataset.id);
+    if (b.dataset.dact === "fav") { await setState(ev, { favorite: !ev.favorite }); openDetail(ev.id); }
+    if (b.dataset.dact === "hide") { await setState(ev, { hidden: !ev.hidden }); $("#detail").close(); }
+    if (b.dataset.dact === "share") shareEvent(ev);
+    if (b.dataset.dact === "delete") {
+      if (b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.textContent = "Wirklich löschen? Nochmal tippen"; return; }
+      try { await api(`/api/events/${encodeURIComponent(ev.id)}`, { method: "DELETE" }); $("#detail").close(); await loadEvents(); toast("Termin gelöscht"); }
+      catch (err) { toast(err.message); }
+    }
+  });
+
+  $("#refreshBtn").addEventListener("click", startRefresh);
+  $("#settingsBtn").addEventListener("click", openSettings);
+  $("#homeChip").addEventListener("click", openSettings);
+  $("#saveSettings").addEventListener("click", saveSettings);
+  $("#settings").addEventListener("click", (e) => { if (e.target === $("#settings")) $("#settings").close(); });
+  $("#fontSeg").addEventListener("click", (e) => { const b = e.target.closest("[data-font]"); if (b) { store.set("font", Number(b.dataset.font)); applyLook(); } });
+  $("#themeSeg").addEventListener("click", (e) => { const b = e.target.closest("[data-theme-set]"); if (b) { store.set("theme", b.dataset.themeSet); applyLook(); } });
+  $("#copyIcs").addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText($("#icsUrl").value); toast("Adresse kopiert"); }
+    catch { $("#icsUrl").select(); toast("Adresse markiert – jetzt kopieren"); }
+  });
+  $("#restoreHidden").addEventListener("click", async () => {
+    const r = await api("/api/hidden/reset", { method: "POST" });
+    await loadEvents(); toast(`${r.restored} Termine wiederhergestellt`);
+  });
+
+  $("#addBtn").addEventListener("click", openAdd);
+  $("#addForm").addEventListener("submit", submitAdd);
+  $("#addDialog").addEventListener("click", (e) => { if (e.target === $("#addDialog") || e.target.closest("[data-close]")) $("#addDialog").close(); });
+
+  $("#welcomeForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const err = $("#welcomeError"); err.hidden = true;
+    try {
+      S.settings = await api("/api/settings", { method: "PUT", body: JSON.stringify({
+        home_query: $("#welcomeQuery").value.trim(), radius_km: Number($("#welcomeRadius").value) }) });
+      S.filters.radius = null;
+      render();
+      startRefresh();
+    } catch (ex) { err.textContent = ex.message; err.hidden = false; }
+  });
+
+  window.addEventListener("resize", () => { measureTopbar(); applyView(); });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { loadEvents().catch(() => {}); pollStatus(); } });
+}
+
+async function main() {
+  S.prevVisit = store.get("lastVisit", 0);
+  store.set("lastVisit", Date.now() / 1000);
+  applyLook();
+  bind();
+  measureTopbar();
+  try {
+    S.settings = await api("/api/settings");
+    await loadEvents();
+  } catch (e) {
+    $("#count").textContent = "Server nicht erreichbar";
+    toast(e.message, 6000);
+  }
+  const st = await pollStatus();
+  if (st && !st.last_finished && !st.runs.length && S.settings.home_query && !st.running) startRefresh();
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+}
+
+main();

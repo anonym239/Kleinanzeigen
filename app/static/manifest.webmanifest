@@ -1,0 +1,13 @@
+{
+  "name": "Flohmarkt-Finder",
+  "short_name": "Flohmärkte",
+  "description": "Flohmärkte, Hofflohmärkte und Haushaltsauflösungen in der Nähe",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#eef2f0",
+  "theme_color": "#0e6f60",
+  "lang": "de",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

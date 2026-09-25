@@ -1,0 +1,16 @@
+# Alternative ohne Docker: als systemd-Dienst starten.
+# Nach /etc/systemd/system/ kopieren, Pfade/Benutzer anpassen, dann:
+#   sudo systemctl daemon-reload && sudo systemctl enable --now flohmarkt-finder
+[Unit]
+Description=Flohmarkt-Finder
+After=network-online.target
+
+[Service]
+User=flohmarkt
+WorkingDirectory=/opt/flohmarkt-finder
+Environment=TZ=Europe/Berlin
+ExecStart=/opt/flohmarkt-finder/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8080
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
