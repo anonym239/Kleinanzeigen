@@ -364,3 +364,4 @@ html.static-mode .server-only, html:not(.static-mode) .static-only { display: no
   .day-overview { grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
 }
 html.in-app .web-only { display: none !important; }
+.err-detail { margin-top: 12px; font-size: .8rem; overflow-wrap: anywhere; }
