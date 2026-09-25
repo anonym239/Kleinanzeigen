@@ -1,12 +1,14 @@
-"""Lädt Beispielseiten der Anbieter und gibt eine kompakte Auswertung aus (nur zur Entwicklung).
+"""Lädt Beispielseiten eines Anbieters und gibt eine kompakte Auswertung aus (nur zur Entwicklung).
 
 Es wird nichts ins Repository geschrieben; die Rohseiten landen als Artifact am Workflow-Lauf.
+Aktuell: Kieler Nachrichten (kn-online.de) – wo gibt es Anzeigen / Termine?
 """
 import json
 import pathlib
 import re
 import sys
 import time
+from urllib.parse import urljoin
 
 import httpx
 from bs4 import BeautifulSoup
@@ -25,7 +27,7 @@ def cut(x, n):
 
 
 def get(name, url):
-    time.sleep(2)
+    time.sleep(1.5)
     try:
         r = c.get(url)
     except Exception as e:  # noqa: BLE001
@@ -35,66 +37,45 @@ def get(name, url):
     soup = BeautifulSoup(r.text, "html.parser")
     t = soup.title.get_text(strip=True) if soup.title else ""
     print(f"\n##### {name} {r.status_code} {r.url} len={len(r.text)} title={cut(t, 100)!r}")
+    types = {}
+    for s in soup.find_all("script", type="application/ld+json"):
+        for mt in re.findall(r'"@type"\s*:\s*"(\w+)"', s.get_text()):
+            types[mt] = types.get(mt, 0) + 1
+    print("LD TYPES:", types)
+    items = events_page.parse_html(r.text, str(r.url))
+    print("EVENTS:", len(items), [(i["title"][:50], str(i["start"])) for i in items[:5]])
     return r.text
 
 
-def links(html, pat, n=30):
+def links(html, base, pat, n=40):
     soup = BeautifulSoup(html, "html.parser")
     hs = []
     for a in soup.find_all("a", href=True):
-        h = a["href"].strip()
-        if re.search(pat, h) and h not in hs:
-            hs.append(h)
-    print("LINKS", pat, hs[:n])
+        h = urljoin(base, a["href"].strip())
+        txt = cut(a.get_text(" "), 60)
+        if re.search(pat, h + " " + txt, re.I) and h not in [x[0] for x in hs]:
+            hs.append((h, txt))
+    print("LINKS", pat)
+    for h, t in hs[:n]:
+        print("   ", h, "|", t)
 
 
-def events(html, url):
-    items = events_page.parse_html(html, url)
-    ds = sorted(i["start"] for i in items)
-    print(f"EVENTS {len(items)}", f"{ds[0]}..{ds[-1]}" if ds else "")
-    for it in items[:4]:
-        print("  EV", it["title"], it["start"], it["time_text"], "|", it["address"])
+home = get("kn_home", "https://www.kn-online.de/")
+links(home, "https://www.kn-online.de/", r"anzeig|markt|veranstalt|termin|flohmarkt|trödel|kalender|service|freizeit")
 
-
-# ---- Kleinanzeigen: Aufbau einer Anzeige ohne SVG-Grafiken
-html = get("ka_flohmarkt", "https://www.kleinanzeigen.de/s-koeln/flohmarkt/k0l983r50")
-soup = BeautifulSoup(html, "html.parser")
-for svg in soup.find_all("svg"):
-    svg.decompose()
-for art in soup.select("article[data-adid]")[:3]:
-    for s in art.find_all("script"):
-        s.string = cut(s.string or "", 300)
-    print("ART_TEXT:", " ¦ ".join(x.strip() for x in art.stripped_strings))
-    print("ART_HTML:", cut(re.sub(r' class="[^"]*"', "", str(art)), 2500))
-print("PAGINATION:", [a.get("href") for a in soup.select("a[href*='seite:']")][:8])
-print("TOTAL HINT:", cut(" ".join(re.findall(r"[\d.]+\s+Ergebnisse?[^<]{0,40}", html)[:3]), 200))
-print("HAS 'Topanzeige':", html.count("TOP"), "gesuch:", html.lower().count("gesuch"))
-
-# ---- meine-flohmarkt-termine.de: Seiten / Zeitraum
-h = get("mft_koeln", "https://meine-flohmarkt-termine.de/ort/koeln")
-events(h, "https://meine-flohmarkt-termine.de/")
-links(h, r"page=|seite|/ort/koeln\?|umkreis|radius|plz")
-h = get("mft_koeln_p2", "https://meine-flohmarkt-termine.de/ort/koeln?page=2")
-events(h, "https://meine-flohmarkt-termine.de/")
-h = get("mft_plz50", "https://meine-flohmarkt-termine.de/de/plz-gebiet/5")
-events(h, "https://meine-flohmarkt-termine.de/")
-links(h, r"plz-gebiet|page=", 40)
-
-# ---- krencky24: 2-stellige PLZ-Gebiete und weitere Seiten
-h = get("krencky_50", "https://krencky24.de/troedelmarkt-flohmarkt_plzgebiet_50.html")
-events(h, "https://krencky24.de/")
-links(h, r"plzgebiet_50|seite|page|weiter", 40)
-
-# ---- marktcom: Karten mit Datum/Ort
-h = get("marktcom_50", "https://www.marktcom.de/termine/plz?q%5Bevent_plz_start%5D=50")
-soup = BeautifulSoup(h, "html.parser")
-cards = soup.select(".announce")
-print("MARKTCOM CARDS", len(cards))
-for card in cards[:4]:
-    print("  CARD:", " ¦ ".join(x.strip() for x in card.stripped_strings))
-links(h, r"page=|seite", 20)
-
-# ---- KÄNGURU (Microdata mit itemprop=date)
-h = get("kaenguru", "https://www.kaenguru-online.de/kalender/maerkte")
-events(h, "https://www.kaenguru-online.de/")
+for name, url in [
+    ("kn_anzeigen", "https://www.kn-online.de/anzeigen/"),
+    ("kn_kleinanzeigen", "https://www.kn-online.de/kleinanzeigen/"),
+    ("kn_marktplatz", "https://www.kn-online.de/marktplatz/"),
+    ("kn_veranstaltungen", "https://www.kn-online.de/veranstaltungen/"),
+    ("kn_freizeit", "https://www.kn-online.de/freizeit/"),
+    ("kn_anzeigen_sub", "https://anzeigen.kn-online.de/"),
+    ("kn_kleinanzeigen_sub", "https://kleinanzeigen.kn-online.de/"),
+    ("kn_markt_sub", "https://markt.kn-online.de/"),
+    ("kn_suche_floh", "https://www.kn-online.de/suche/?q=flohmarkt"),
+    ("kn_tag_floh", "https://www.kn-online.de/themen/flohmarkt/"),
+]:
+    h = get(name, url)
+    if h:
+        links(h, url, r"anzeig|flohmarkt|trödel|haushalt|termin|veranstalt|rubrik|kategorie", 25)
 print("=====END")
