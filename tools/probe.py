@@ -65,10 +65,64 @@ for name, url in [
 (out / "report.json").write_text(json.dumps(report, indent=1))
 print(json.dumps(report, indent=1))
 
-# Zusätzlich komprimiert ins Log schreiben (falls der Artifact-Download nicht erreichbar ist)
+# Kompakte Auswertung fürs Log
+from bs4 import BeautifulSoup  # noqa: E402
+
+from app.sources import events_page, kleinanzeigen  # noqa: E402
+
+
+def cut(x, n):
+    x = re.sub(r"\s+", " ", str(x))
+    return x[:n]
+
+
 for f in sorted(out.glob("*.html")):
-    blob = base64.b64encode(gzip.compress(f.read_bytes(), 9)).decode()
-    print(f"=====FILE {f.name} {len(blob)}")
-    for i in range(0, len(blob), 4000):
-        print("B64:" + blob[i:i + 4000])
+    html = f.read_text()
+    soup = BeautifulSoup(html, "html.parser")
+    title = soup.title.get_text(strip=True) if soup.title else ""
+    print(f"\n##### {f.name} len={len(html)} title={cut(title, 120)!r}")
+    if f.name.startswith("ka_ort") or f.name.startswith("nominatim"):
+        print(cut(html, 600))
+        continue
+    if f.name.startswith("ka_") and "detail" not in f.name:
+        ads = kleinanzeigen.parse_search_page(html)
+        print(f"PARSED ADS: {len(ads)}")
+        for ad in ads[:25]:
+            print("AD", json.dumps({k: ad[k] for k in ("title", "location", "posted_raw", "price")}, ensure_ascii=False),
+                  "|", cut(ad["description"], 160))
+        arts = soup.select("article")
+        print("ARTICLES:", len(arts))
+        if arts:
+            print("FIRST ARTICLE HTML:", cut(arts[0], 3000))
+        elif "aditem" not in html:
+            print("NO aditem. BODY START:", cut(soup.body or html, 1500))
+        continue
+    if "detail" in f.name:
+        print("PARSED DETAIL:", json.dumps(kleinanzeigen.parse_detail_page(html), ensure_ascii=False)[:1500])
+        for sel in ["#viewad-locality", "#street-address", "#viewad-extra-info", "#viewad-details",
+                    "#viewad-description-text", "#viewad-title", "#viewad-price"]:
+            el = soup.select_one(sel)
+            print("SEL", sel, "=>", cut(el, 500) if el else None)
+        for m in soup.find_all("meta"):
+            if m.get("property", "").startswith("og:") or "lat" in str(m.get("name", "")):
+                print("META", m.get("property") or m.get("name"), cut(m.get("content"), 120))
+        for m in re.finditer(r"(latitude|longitude|\"lat\"|\"lng\")[^,]{0,40}", html):
+            print("GEO", m.group(0))
+            break
+        continue
+    items = events_page.parse_html(html, "https://example.org/")
+    print(f"JSONLD/MICRODATA EVENTS: {len(items)}")
+    for it in items[:5]:
+        print("EV", it["title"], it["start"], it["time_text"], "|", it["address"], it["lat"], "|", it["url"])
+    types = {}
+    for t in soup.find_all("script", type="application/ld+json"):
+        for mt in re.findall(r'"@type"\s*:\s*"(\w+)"', t.get_text()):
+            types[mt] = types.get(mt, 0) + 1
+    print("LD TYPES:", types)
+    m = re.search(r"\b\d{1,2}\.\d{1,2}\.(20)?\d{2}\b", html[3000:])
+    if m:
+        i = m.start() + 3000
+        print("AROUND DATE:", cut(html[max(0, i - 1500):i + 1500], 3000))
+    links = [a.get("href") for a in soup.find_all("a", href=True)]
+    print("SAMPLE LINKS:", [l for l in links if re.search(r"markt|termin|flohmarkt|anzeige|/ort/|/s/", l or "")][:25])
 print("=====END")
