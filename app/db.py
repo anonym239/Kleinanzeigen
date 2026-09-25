@@ -252,6 +252,7 @@ def delete_scraped_events() -> int:
     with connect() as c:
         n = c.execute("DELETE FROM events WHERE manual = 0").rowcount
         c.execute("DELETE FROM user_state WHERE event_id NOT IN (SELECT id FROM events)")
+        c.execute("DELETE FROM runs")  # Statistik des alten Gebiets ist nicht mehr aussagekräftig
     return n
 
 

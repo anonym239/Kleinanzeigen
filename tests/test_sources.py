@@ -1,3 +1,4 @@
+import pytest
 from datetime import date
 
 from app.classify import classify, is_service_ad
@@ -160,3 +161,40 @@ def test_real_ads_relevance():
         "Flohmarkt verschiedenes": False,
         "Flohmarkt am Küllenhahn": True,
     }
+
+
+# Echte Kleinanzeigen-Titel aus dem Raum Kiel/Hamburg (25.09.2026): (Titel, Preis, Datum erkannt, erwartet)
+REAL_KIEL = [
+    ("Haushaltsauflösung in Lübeck am 27.09.2026", "VB", True, True),
+    ("Hofflohmarkt in Augustenhof am 04. Oktober 2026", "1 €", True, True),
+    ("Kinderbasar 27.09. - noch freie Verkäufernummern!", "Zu verschenken", True, True),
+    ("Hof- und Garagenflohmarkt 27.09.2026", "VB", True, True),
+    ("Hofflohmarkt Sa & So. 03. & 04.10. 10-16 Uhr", "VB", True, True),
+    ("Flohmarkt Neugraben Vogelkamp 27.09.26", "1 € VB", True, True),
+    ("Haushaltsauflösung am 25.09.. Freitag ab 16.00 Uhr", "10 € VB", True, True),
+    ("Hausauflösung interner Flohmarkt mit Termin. Alles muss raus", "1 € VB", False, True),
+    ("Garagenflohmarkt Am Wasserturm 9 21435 Stelle", "1 €", False, True),
+    ("ALLES MUSS RAUS! Garagen-Flohmarkt Kinderkleidung Baby 11. Okt", "1 € VB", True, True),
+    ("Flohmarkt Strassenflohmarkt Innenstadt Wilster am 26.9.26", "12.345.678 €", True, True),
+    ("Hof- und Garagen Flohmarkt", "Zu verschenken", False, True),
+    ("An alle Flohmarkt Verkäufer macht ein Angebot", "VB", False, False),
+    ("Flohmarkt Hofflohmarkt Trödel Trödelmarkt Haushaltsauflösung", "VB", False, False),
+    ("Flohmarkt Trödelmarkt Antik und Maritim Porzellan Gläser Möbel ua", "VB", False, False),
+    ("Weingläser und Likörgläser, 70-er Jahre", "15 €", False, False),
+    ("Großer Vintage Nähkasten aus Holz Trödel Flohmarkt", "VB", False, False),
+    ("Trennscheibe 450mm, Tiefbauer, Straßenbau, Flohmarkt, Trödel", "80 € VB", False, False),
+    ("Aus Nachlass zu verkaufen", "600 €", False, False),
+    ("Plattdüütscher Trödelmarkt 4 CD Set & Booklet", "8 €", False, False),
+    ("Haushaltsauflösung, Versace Sammlung Gläser Vasen… ab", "50 €", False, False),
+    ("Champagnerkühler - versilbert - Hausauflösung!!", "45 €", False, False),
+    ("Flohmarkt Artikel zusammen 3.00 €", "3 € VB", False, False),
+    ("Flohmarkt Kiste Spiele Stativ Deko Filament Nicer Dicer usw.", "30 € VB", False, False),
+    ("Flohmarkt Stand 3 Meter zu verkaufen", "35 €", True, False),
+    ("Rollator aus Nachlass zu verkaufen", "30 €", False, False),
+]
+
+
+@pytest.mark.parametrize("title,price,has_date,expected", REAL_KIEL)
+def test_real_kiel_titles(title, price, has_date, expected):
+    from app.classify import is_event_ad
+    assert is_event_ad(title, "", price, has_date, False) is expected

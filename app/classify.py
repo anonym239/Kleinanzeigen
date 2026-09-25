@@ -68,42 +68,66 @@ _REASON_ONLY = re.compile(
 )
 _ON_SITE = re.compile(
     r"vor ort|alles muss raus|besichtigung|termin|geöffnet|öffnungszeit|\d\s*uhr\b|samstag|sonntag|wochenende|"
-    r"verkauf findet|verkaufen wir|stände|standgebühr|aussteller|verkäufer|tür(en)? offen|kommen sie|kommt vorbei|"
+    r"verkauf findet|verkaufen wir|stände|standgebühr|aussteller|tür(en)? offen|kommen sie|kommt vorbei|"
     r"schnäppchen|stöbern|alles günstig|restposten|komplett|gesamter hausstand|hausstand|inventar|wir räumen|"
     r"ich räume|räumen unser|kommt vorbei|vorbeikommen",
     re.I,
 )
 # Eindeutige Veranstaltungswörter (anders als "Flohmarkt"/"Trödel", die oft nur Schlagwort für Einzelartikel sind)
 _STRONG_WORDS = re.compile(
-    r"hofflohmarkt|garagenflohmarkt|hausflohmarkt|gartenflohmarkt|straßenflohmarkt|kinderflohmarkt|nachtflohmarkt|"
-    r"hallenflohmarkt|haushaltsauflösung|haushaltsaufloesung|wohnungsauflösung|wohnungsaufloesung|hausauflösung|"
-    r"hausaufloesung|basar|bazar|trödelmarkt|troedelmarkt|antikmarkt|räumungsverkauf|garagenverkauf|hofverkauf",
+    r"hofflohmarkt|garagenflohmarkt|hausflohmarkt|gartenflohmarkt|straßenflohmarkt|strassenflohmarkt|kellerflohmarkt|"
+    r"kinderflohmarkt|nachtflohmarkt|hallenflohmarkt|haushaltsauflösung|haushaltsaufloesung|wohnungsauflösung|"
+    r"wohnungsaufloesung|hausauflösung|hausaufloesung|basar|bazar|trödelmarkt|troedelmarkt|antikmarkt|"
+    r"räumungsverkauf|garagenverkauf|hofverkauf|nummernflohmarkt",
     re.I,
 )
-_ITEM_PRICE = re.compile(r"^\s*\d+[\d.,]*\s*€")
+# "Garagen-Flohmarkt", "Hof- und Garagen Flohmarkt" -> "Garagenflohmarkt", "Hofflohmarkt"
+_JOIN_FLOH = re.compile(
+    r"\b(hof|garagen|haus|garten|keller|straßen|strassen|kinder|nacht|hallen)[\s-]*"
+    r"(?:und\s+(?:hof|garagen|haus|garten|keller)[\s-]*)?flohmarkt",
+    re.I,
+)
+_PRICE_NUM = re.compile(r"(\d[\d.]*)(?:,\d+)?\s*€")
 # Typische Wörter für Einzelartikel/Konvolute ("Trödel Flohmarkt Konvolut", "Flohmarkt Paket Kinderkleidung")
 _ITEM_WORDS = re.compile(
     r"konvolut|paket|sammlung|kiste|karton|\bset\b|stück|figur|vase|geschirr|teller|tasse|lampe|handy|iphone|"
-    r"samsung|playstation|fahrrad|schrank|sofa|stuhl|tisch|kleid|jacke|schuhe|gr\.\s*\d|größe|zu verkaufen|verkaufe\b",
+    r"samsung|playstation|fahrrad|schrank|sofa|stuhl|tisch|kleid|jacke|schuhe|gr\.\s*\d|größe|zu verkaufen|"
+    r"verkaufe\b|porzellan|gläser|möbel|angebot|artikel|\bcds?\b|lp\b|schallplatte",
     re.I,
 )
 
 
+def _item_price(price: str) -> bool:
+    """Konkreter Artikelpreis? Platzhalter wie "1 €" oder "12.345.678 €" zählen nicht."""
+    m = _PRICE_NUM.search(price or "")
+    if not m:
+        return False
+    try:
+        value = float(m.group(1).replace(".", ""))
+    except ValueError:
+        return False
+    return 2 <= value <= 10000
+
+
 def is_event_ad(title: str, text: str = "", price: str = "", has_date: bool = False, has_time: bool = False) -> bool:
-    """True, wenn die Anzeige eine Veranstaltung / einen Verkauf vor Ort beschreibt."""
-    t = title or ""
+    """True, wenn die Anzeige eine Veranstaltung / einen Verkauf vor Ort beschreibt (kein Einzelartikel)."""
+    t = _JOIN_FLOH.sub(lambda m: m.group(1) + "flohmarkt", title or "")
     blob = f"{t}\n{text or ''}"
-    in_title = bool(_EVENT_WORDS.search(t)) and not _REASON_ONLY.search(t)
+    reason_only = bool(_REASON_ONLY.search(t))
+    in_title = bool(_EVENT_WORDS.search(t)) and not reason_only
     if not in_title and not _EVENT_WORDS.search(blob):
+        return False
+    # Schlagwort-Titel ("Flohmarkt Hofflohmarkt Trödel Trödelmarkt Haushaltsauflösung") ohne Termin = Artikelverkäufer
+    if not has_date and len(_EVENT_WORDS.findall(t)) >= 3:
         return False
     score = 0
     score += (3 if _STRONG_WORDS.search(t) else 2) if in_title else 0
-    score -= 3 if _REASON_ONLY.search(t) else 0
-    score -= 2 if _ITEM_WORDS.search(t) else 0
+    score -= 3 if reason_only else 0
     score += 2 if has_date else 0
     score += 1 if has_time else 0
     score += 1 if _ON_SITE.search(blob) else 0
-    if _ITEM_PRICE.search(price or ""):
-        # Konkreter Preis spricht für einen Einzelartikel (Veranstaltungen haben meist keinen Preis)
-        score -= 2
+    if _item_price(price):
+        score -= 2  # Veranstaltungen haben meist keinen oder nur einen Platzhalter-Preis
+    if not has_date and _ITEM_WORDS.search(t):
+        score -= 2  # Warenliste im Titel ohne Termin
     return score >= 3

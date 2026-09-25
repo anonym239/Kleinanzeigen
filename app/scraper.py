@@ -20,9 +20,16 @@ state = {"running": False, "started": None, "message": "", "last_finished": None
 
 
 def _geocode_event(ev: dict) -> None:
+    """Koordinaten ergänzen: genaue Adresse, sonst Ort, sonst nur die Postleitzahl."""
     if ev.get("lat") is not None:
         return
-    for q in (ev.get("address"), ev.get("location")):
+    queries = [ev.get("address")]
+    for text in (ev.get("address"), ev.get("location")):
+        m = re.search(r"\b(\d{5})\b", text or "")
+        if m:
+            queries.append(m.group(1))
+    queries.append(ev.get("location"))  # reiner Ortsname zuletzt ("Marktplatz" gibt es überall)
+    for q in queries:
         if q:
             res = geo.geocode(q)
             if res:
@@ -77,8 +84,11 @@ def _run_kleinanzeigen(settings: dict) -> tuple[int, int]:
             if existing and existing["detail_fetched"] and not ev["detail_fetched"]:
                 # Bereits aus der Detailseite gelesene Daten nicht durch die gekürzte Vorschau überschreiben
                 for k in ("description", "address", "lat", "lon", "start_date", "end_date", "date_certain",
-                          "time_text", "detail_fetched", "image", "is_service", "category", "relevant"):
+                          "time_text", "detail_fetched", "image", "is_service", "category"):
                     ev[k] = existing[k]
+                # Mit den aktuellen Regeln neu bewerten (Regeln können sich seit dem letzten Lauf geändert haben)
+                ev["relevant"] = int(is_event_ad(ev["title"], ev["description"], ev["price"],
+                                                 bool(ev["start_date"]), bool(ev["time_text"])))
             if ev["relevant"]:
                 _geocode_event(ev)  # Einzelartikel werden nur gemerkt, nicht verortet
             found += ev["relevant"]
