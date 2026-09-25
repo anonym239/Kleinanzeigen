@@ -1,25 +1,44 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Gelbes Preisschild mit Loch (wie auf der Webseite); sichere Zone 66dp in der Mitte von 108dp -->
+<!-- Standort-Pin mit Lupe im Kreis (gleiches Motiv wie icon.svg der Webseite) -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path
-        android:fillColor="@color/tag"
-        android:strokeColor="@color/tag_ink"
-        android:strokeWidth="2.5"
-        android:strokeLineJoin="round"
-        android:pathData="M28,54 L50,30 L80,30 L80,78 L50,78 Z" />
-    <path
-        android:fillColor="@color/brand"
-        android:strokeColor="@color/tag_ink"
-        android:strokeWidth="2.2"
-        android:pathData="M44,54 m-5,0 a5,5 0 1,0 10,0 a5,5 0 1,0 -10,0" />
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="@color/tag_ink"
-        android:strokeWidth="3"
-        android:strokeLineCap="round"
-        android:pathData="M58,46 L72,46 M58,54 L72,54 M58,62 L68,62" />
+    <group
+        android:scaleX="0.152"
+        android:scaleY="0.152"
+        android:translateX="15.08"
+        android:translateY="15.08">
+        <path
+            android:fillColor="#00000000"
+            android:strokeColor="@color/icon_blue"
+            android:strokeWidth="22"
+            android:pathData="M50,256 a206,206 0 1,0 412,0 a206,206 0 1,0 -412,0" />
+        <path
+            android:fillColor="#00000000"
+            android:strokeColor="@color/icon_blue"
+            android:strokeWidth="22"
+            android:strokeLineJoin="round"
+            android:pathData="M232,392 C206,352 166,304 166,262 a66,66 0 0,1 132,0 c0,42 -40,90 -66,130 Z" />
+        <path
+            android:fillColor="@color/icon_blue"
+            android:pathData="M201,262 a21,21 0 1,0 42,0 a21,21 0 1,0 -42,0" />
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="44"
+            android:pathData="M256,190 a46,46 0 1,0 92,0 a46,46 0 1,0 -92,0" />
+        <path
+            android:fillColor="#00000000"
+            android:strokeColor="@color/icon_blue"
+            android:strokeWidth="20"
+            android:pathData="M256,190 a46,46 0 1,0 92,0 a46,46 0 1,0 -92,0" />
+        <path
+            android:fillColor="#00000000"
+            android:strokeColor="@color/icon_blue"
+            android:strokeWidth="22"
+            android:strokeLineCap="round"
+            android:pathData="M336,224 L372,260" />
+    </group>
 </vector>
