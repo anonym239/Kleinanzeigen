@@ -68,11 +68,13 @@ DEFAULT_SETTINGS = {
         "Wohnungsauflösung", "Nachlass Verkauf", "Trödelmarkt", "Kinderflohmarkt",
     ],
     "kleinanzeigen_enabled": True,
-    "calendars_enabled": True,  # Flohmarkt-Terminkalender (krencky24.de / meine-flohmarkt-termine.de)
+    "calendars_enabled": True,
+    "kn_enabled": True,         # Kieler Nachrichten (RSS-Feeds, nur Termine)  # Flohmarkt-Terminkalender (krencky24.de / meine-flohmarkt-termine.de)
     "kleinanzeigen_pages": 2,
     "detail_fetch_limit": 40,
     "extra_urls": [],          # Webseiten mit Veranstaltungskalender (schema.org/Event)
     "keep_past_days": 3,
+    "site_url": "",            # Adresse der veröffentlichten Webseite (Netlify), für die App
 }
 
 

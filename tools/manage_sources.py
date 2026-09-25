@@ -16,7 +16,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 URL_RE = re.compile(r"https?://[^\s<>\"')\]]+", re.I)
-BUILTIN = ("kleinanzeigen.de", "krencky24.de", "meine-flohmarkt-termine.de")
+BUILTIN = ("kleinanzeigen.de", "krencky24.de", "meine-flohmarkt-termine.de", "kn-online.de")
 
 
 def parse_request(title: str, body: str) -> tuple[str | None, str | None]:

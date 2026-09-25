@@ -67,14 +67,29 @@ Ob die letzte Suche geklappt hat, steht in der Seite unter Einstellungen → „
 
 ### Eigene Quellen hinzufügen (z.B. Kieler Express, Kirchengemeinde)
 
-In der Seite oder App: **Einstellungen → Quellen → Webadresse eintragen → „Quelle hinzufügen“**.
-Es öffnet sich GitHub mit einer vorbereiteten Nachricht (Issue); mit dem Konto `anonym239` angemeldet einfach auf
-**„Submit new issue“** tippen. Der Workflow „Quelle hinzufügen/entfernen“ trägt die Adresse in `config.json` ein und
-startet sofort einen Suchlauf. Entfernen geht genauso über „Entfernen“ neben der Quelle.
+In der Seite oder App: **Einstellungen → Quellen → Webadresse eintragen → „Quelle hinzufügen“**. Fertig –
+nach etwa 10 Minuten sind die Termine da. Entfernen über „Entfernen“ neben der Quelle.
+
+Dahinter steckt ein kleiner Helfer auf Netlify (`netlify/functions/sources.mjs`), der die Adresse in `config.json`
+einträgt; das startet automatisch einen Suchlauf. **Einmalig einrichten:**
+
+1. Auf GitHub ein Token erstellen: *Settings → Developer settings → Personal access tokens → Fine-grained tokens →
+   Generate new token*. Repository access: nur **anonym239/Kleinanzeigen**. Permissions: **Contents: Read and write**.
+2. In Netlify: *Project configuration → Environment variables → Add a variable*: Name `GITHUB_TOKEN`, Wert = Token.
+   Optional `SOURCE_PIN` (z.B. `1234`), dann fragt die Seite beim Hinzufügen einmal nach dieser PIN.
+3. In `config.json` bei `"site_url"` die Netlify-Adresse eintragen (z.B. `https://name.netlify.app`), damit auch die
+   App den Helfer findet.
+
+Solange das nicht eingerichtet ist, öffnet „Quelle hinzufügen“ ersatzweise GitHub mit einer vorbereiteten Nachricht.
 
 Gelesen werden Seiten mit maschinenlesbaren Terminen (schema.org, iCal) und – falls es die nicht gibt – Textblöcke,
 die „Flohmarkt“, „Haushaltsauflösung“ o.ä. und ein Datum enthalten. Es gilt immer der eingestellte Umkreis.
-Seiten, die automatische Abrufe sperren (z.B. kn-online.de der Kieler Nachrichten), lassen sich nicht einbinden.
+
+### Kieler Nachrichten
+
+Fest eingebaut über die **offiziellen RSS-Feeds** (Kiel, Plön, Hauptfeed) – kostenlos, ohne Abo. Übernommen werden nur
+Termine (z.B. aus „Flohmarkt-Termine am Wochenende …“), keine Nachrichten oder Berichte. Die Webseite kn-online.de
+selbst sperrt automatische Abrufe; Kleinanzeigen aus der gedruckten Zeitung sind dort nicht öffentlich abrufbar.
 
 ### Android-App
 

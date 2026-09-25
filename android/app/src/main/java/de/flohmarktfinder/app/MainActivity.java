@@ -72,6 +72,7 @@ public class MainActivity extends Activity {
         ws.setTextZoom(100);
 
         webView.addJavascriptInterface(new Bridge(), "AndroidApp");
+        webView.setWebChromeClient(new android.webkit.WebChromeClient()); // Dialoge (z.B. PIN-Abfrage) erlauben
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {

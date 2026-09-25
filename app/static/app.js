@@ -362,7 +362,9 @@ function cardHTML(ev) {
     `<span class="pill cat">${catIcon(k, "sm")}${esc(ev.category_label)}</span>`,
     isNew(ev) ? `<span class="pill new">NEU</span>` : "",
     ev.is_service ? `<span class="pill warn">Firma/Werbung</span>` : "",
-    `<span class="pill src">${ev.source === "kleinanzeigen" ? "Privat · Kleinanzeigen" : ev.manual ? "Eigener Eintrag" : "Markt-Kalender"}</span>`,
+    `<span class="pill src">${ev.source === "kleinanzeigen" ? "Privat · Kleinanzeigen" : ev.manual ? "Eigener Eintrag"
+      : ev.source === "Kieler Nachrichten" ? "Kieler Nachrichten"
+      : ["krencky24.de", "meine-flohmarkt-termine.de"].includes(ev.source) ? "Markt-Kalender" : esc(ev.source)}</span>`,
   ].join("");
   return `
   <article class="card ${ev.hidden ? "is-hidden" : ""}" style="--cat: var(--c-${k})" data-id="${esc(ev.id)}" tabindex="0">
@@ -691,6 +693,57 @@ function sourceIssue(action, url) {
   openExternal(`https://github.com/${REPO}/issues/new?title=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`);
 }
 
+/* Quelle direkt hinzufügen/entfernen: über den Netlify-Helfer (trägt sie bei GitHub ein) */
+function sourceApiUrl() {
+  const onWeb = !window.FLOHMARKT_APP && location.protocol.startsWith("http");
+  const base = onWeb ? "" : (L$.data?.site_url || "");
+  return base || onWeb ? `${base}/.netlify/functions/sources` : "";
+}
+
+function showSourceMsg(text, isError = false) {
+  const el = $("#sourceError");
+  el.textContent = text;
+  el.classList.toggle("ok", !isError);
+  el.hidden = false;
+}
+
+async function changeSource(action, url) {
+  const api = sourceApiUrl();
+  const btn = $("#addSource");
+  btn.disabled = true; btn.textContent = action === "add" ? "Wird hinzugefügt …" : "Wird entfernt …";
+  try {
+    if (!api) throw Object.assign(new Error("nicht eingerichtet"), { code: "no_api" });
+    const r = await fetch(api, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, url, pin: store.get("sourcePin", "") }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 401) {
+      const pin = window.prompt ? window.prompt("PIN für neue Quellen:") : "";
+      if (pin) { store.set("sourcePin", pin.trim()); return changeSource(action, url); }
+      throw new Error(j.message || "PIN fehlt.");
+    }
+    if (r.status === 404 || j.code === "no_token") throw Object.assign(new Error(j.message || "nicht eingerichtet"), { code: "no_api" });
+    if (!r.ok || !j.ok) throw new Error(j.message || `Fehler ${r.status}`);
+    showSourceMsg(j.message);
+    $("#newSource").value = "";
+    const pending = store.get("pendingSources", []);
+    if (j.changed && action === "add") store.set("pendingSources", [...pending, { url, at: Date.now() }]);
+    if (j.changed && action === "remove") store.set("pendingSources", pending.filter((p) => p.url !== url));
+    renderSourceList();
+  } catch (e) {
+    if (e.code === "no_api") {
+      // Rückfall, solange der Helfer nicht eingerichtet ist: GitHub-Nachricht vorbereiten
+      showSourceMsg("Das direkte Hinzufügen ist noch nicht eingerichtet. Es öffnet sich GitHub – dort „Submit new issue“ tippen.", true);
+      sourceIssue(action, url);
+    } else {
+      showSourceMsg(e.message || "Das hat nicht geklappt. Bitte später erneut versuchen.", true);
+    }
+  } finally {
+    btn.disabled = false; btn.textContent = "Quelle hinzufügen";
+  }
+}
+
 function renderSourceList() {
   const data = L$.data;
   if (!data) return;
@@ -703,6 +756,7 @@ function renderSourceList() {
     const run = runFor(src);
     const n = src.name === "Kleinanzeigen" ? counts.kleinanzeigen
       : src.name === "Flohmarkt-Kalender" ? (counts["krencky24.de"] || 0) + (counts["meine-flohmarkt-termine.de"] || 0)
+      : src.name === "Kieler Nachrichten" ? counts["Kieler Nachrichten"]
       : counts[src.name];
     const state = !run ? "wartet auf ersten Suchlauf" : run.ok ? `${n || 0} Termine · zuletzt ${when(run.finished)}` : `Fehler: ${run.message}`;
     return `<div class="src-row">
@@ -711,7 +765,16 @@ function renderSourceList() {
         <small>${esc(state)}</small></div>
       ${src.builtin ? "" : `<button class="link-btn" type="button" data-remove-src="${esc(src.url)}">Entfernen</button>`}
     </div>`;
-  }).join("") || `<p class="hint">Noch keine Quellen.</p>`;
+  }).join("") + pendingSourcesHTML() || `<p class="hint">Noch keine Quellen.</p>`;
+}
+
+function pendingSourcesHTML() {
+  const known = new Set((L$.data?.sources || []).map((s) => s.url));
+  const pending = store.get("pendingSources", []).filter((p) => !known.has(p.url) && Date.now() - p.at < 86400000);
+  store.set("pendingSources", pending);
+  return pending.map((p) => `<div class="src-row"><span class="state wait"></span>
+    <div class="src-main"><strong>${esc(new URL(p.url).hostname.replace(/^www\./, ""))}</strong>
+    <small>wird gerade eingerichtet – Termine erscheinen in ca. 10 Minuten</small></div><span></span></div>`).join("");
 }
 
 async function saveSettings() {
@@ -873,21 +936,19 @@ function bind() {
     await loadEvents(); toast(`${r.restored} Termine wiederhergestellt`);
   });
 
-  $("#addSource").addEventListener("click", () => {
+  $("#addSource").addEventListener("click", async () => {
     let url = $("#newSource").value.trim();
     if (url && !/^https?:\/\//i.test(url)) url = `https://${url}`;
     let ok = false;
     try { ok = !!new URL(url).hostname.includes("."); } catch { ok = false; }
-    if (!ok) { $("#sourceError").textContent = "Bitte eine Webadresse eingeben, z.B. https://www.kieler-express.de"; $("#sourceError").hidden = false; return; }
-    $("#sourceError").hidden = true;
-    sourceIssue("add", url);
-    $("#newSource").value = "";
+    if (!ok) { showSourceMsg("Bitte eine Webadresse eingeben, z.B. www.kieler-express.de", true); return; }
+    await changeSource("add", url);
   });
   $("#sourceList").addEventListener("click", (e) => {
     const b = e.target.closest("[data-remove-src]");
     if (!b) return;
     if (b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.textContent = "Wirklich entfernen?"; return; }
-    sourceIssue("remove", b.dataset.removeSrc);
+    changeSource("remove", b.dataset.removeSrc);
   });
   $("#addBtn").addEventListener("click", openAdd);
   $("#addForm").addEventListener("submit", submitAdd);

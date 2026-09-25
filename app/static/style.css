@@ -372,3 +372,4 @@ html.in-app .web-only { display: none !important; }
 .src-main small { color: var(--ink-soft); overflow-wrap: anywhere; }
 .src-row .state.wait { background: var(--tag); }
 .src-main .pill { align-self: flex-start; }
+.form-error.ok { color: var(--accent); }

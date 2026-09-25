@@ -6,7 +6,7 @@ on:
     - cron: "23 */3 * * *"   # alle 3 Stunden
   workflow_dispatch:
   push:
-    paths: [config.json, app/**, .github/workflows/site.yml]
+    paths: [config.json, app/**, netlify/**, .github/workflows/site.yml]
 
 permissions:
   contents: write   # zum Aktualisieren des Branches "live"

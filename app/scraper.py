@@ -10,7 +10,7 @@ from datetime import date, timedelta
 from . import db, geo
 from .classify import _EVENT_WORDS, classify, is_event_ad, is_service_ad
 from .dateparse import parse_event_date, parse_time_text
-from .sources import calendars, events_page, kleinanzeigen
+from .sources import calendars, events_page, kleinanzeigen, kn
 from .sources.base import SourceError, make_client
 
 log = logging.getLogger(__name__)
@@ -118,7 +118,7 @@ def _store_web_item(it: dict, source: str, ev_id: str, settings: dict) -> tuple[
         "category": category,
         "start_date": it["start"].isoformat(),
         "end_date": it["end"].isoformat(),
-        "date_certain": 1,
+        "date_certain": int(it.get("certain", True)),
         "time_text": it["time_text"] or parse_time_text(text) or "",
         "location": it["location"],
         "address": it["address"],
@@ -150,6 +150,16 @@ def _run_url(url: str, settings: dict) -> tuple[int, int]:
     name = events_page.source_name(url)
     for it in items:
         f, n = _store_web_item(it, name, f"web:{name}:{it['ext_id']}", settings)
+        found, new = found + f, new + n
+    return found, new
+
+
+def _run_kn(settings: dict) -> tuple[int, int]:
+    found = new = 0
+    with make_client() as client:
+        items = kn.scrape(client)
+    for it in items:
+        f, n = _store_web_item(it, kn.NAME, f"kn:{it['ext_id']}", settings)
         found, new = found + f, new + n
     return found, new
 
@@ -204,6 +214,15 @@ def run_all() -> bool:
             except Exception as e:  # noqa: BLE001
                 log.exception("Flohmarkt-Kalender fehlgeschlagen")
                 db.log_run("Flohmarkt-Kalender", t0, False, 0, str(e))
+        if settings.get("kn_enabled", True) and settings.get("home_query"):
+            t0 = time.time()
+            state["message"] = "Kieler Nachrichten …"
+            try:
+                found, new = _run_kn(settings)
+                db.log_run(kn.NAME, t0, True, found, f"{new} neu" if found else "zurzeit keine Termine in den Feeds")
+            except Exception as e:  # noqa: BLE001
+                log.warning("Kieler Nachrichten fehlgeschlagen: %s", e)
+                db.log_run(kn.NAME, t0, False, 0, str(e))
         for url in settings.get("extra_urls") or []:
             t0 = time.time()
             state["message"] = f"Lese {events_page.source_name(url)} …"

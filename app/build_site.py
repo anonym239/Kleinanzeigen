@@ -26,6 +26,10 @@ NETLIFY_TOML = """[build]
   publish = "."
   command = ""
 
+# Helfer zum Hinzufügen von Quellen direkt aus Seite/App (braucht GITHUB_TOKEN bei Netlify)
+[functions]
+  directory = "netlify/functions"
+
 [[headers]]
   for = "/data/*"
   [headers.values]
@@ -51,9 +55,11 @@ def apply_config(cfg: dict) -> dict:
         "search_terms": list(cfg.get("search_terms") or db.DEFAULT_SETTINGS["search_terms"]),
         "kleinanzeigen_enabled": bool(cfg.get("kleinanzeigen_enabled", True)),
         "calendars_enabled": bool(cfg.get("calendars_enabled", True)),
+        "kn_enabled": bool(cfg.get("kn_enabled", True)),
         "kleinanzeigen_pages": int(cfg.get("kleinanzeigen_pages", 3)),
         "detail_fetch_limit": int(cfg.get("detail_fetch_limit", 80)),
         "extra_urls": list(cfg.get("extra_urls") or []),
+        "site_url": str(cfg.get("site_url") or cfg.get("app_url") or "").strip().rstrip("/"),
     }
     previous = db.get_settings()
     if (previous.get("home_query"), float(previous.get("radius_km") or 0)) != (values["home_query"], values["radius_km"]):
@@ -76,6 +82,8 @@ def source_list(settings: dict) -> list[dict]:
          "active": bool(settings.get("kleinanzeigen_enabled"))},
         {"name": "Flohmarkt-Kalender", "url": "https://krencky24.de", "builtin": True,
          "active": bool(settings.get("calendars_enabled", True))},
+        {"name": "Kieler Nachrichten", "url": "https://www.kn-online.de", "builtin": True,
+         "active": bool(settings.get("kn_enabled", True))},
     ]
     for url in settings.get("extra_urls") or []:
         items.append({"name": source_name(url), "url": url, "builtin": False, "active": True})
@@ -91,6 +99,9 @@ def export(out: Path, settings: dict) -> int:
     (out / "static" / "mode.js").write_text("window.FLOHMARKT_STATIC = true;\n")
     (out / ".nojekyll").write_text("")
     (out / "netlify.toml").write_text(NETLIFY_TOML)
+    functions = Path(__file__).resolve().parent.parent / "netlify" / "functions"
+    if functions.is_dir():
+        shutil.copytree(functions, out / "netlify" / "functions", dirs_exist_ok=True)
     (out / "README.md").write_text(
         "# Flohmarkt-Finder – veröffentlichte Webseite\n\n"
         "Dieser Branch wird automatisch alle 3 Stunden von GitHub Actions erzeugt (siehe `.github/workflows/site.yml`\n"
@@ -120,6 +131,7 @@ def export(out: Path, settings: dict) -> int:
         "categories": CATEGORY_LABELS,
         "runs": db.last_runs(),
         "sources": source_list(settings),
+        "site_url": settings.get("site_url") or "",
         "events": events,
     }
     (out / "data").mkdir(exist_ok=True)
