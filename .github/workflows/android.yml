@@ -28,7 +28,9 @@ jobs:
         with: { gradle-version: "8.9" }
 
       - name: Oberfläche in die App legen
-        run: python -m app.build_site --app-assets android/app/src/main/assets/www
+        run: |
+          pip install -r requirements.txt
+          python -m app.build_site --app-assets android/app/src/main/assets/www
 
       - name: Eigenen Signatur-Schlüssel verwenden (falls als Secret hinterlegt)
         env:
