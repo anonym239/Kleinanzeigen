@@ -1,5 +1,8 @@
 name: Probe (Entwicklung)
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+  push:
+    paths: [tools/probe.py, .github/workflows/probe.yml]
 permissions:
   contents: read
 jobs:
