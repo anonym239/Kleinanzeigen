@@ -24,6 +24,6 @@
   "_hinweis_app_url": "Adresse der Webseite (z.B. https://name.netlify.app). Die Android-App zeigt dann genau diese Seite; leer = eingebaute Oberfläche.",
   "app_url": "",
   "kn_enabled": true,
-  "site_url": "",
+  "site_url": "https://anzeigen4you.netlify.app",
   "_hinweis_site_url": "Adresse der Netlify-Seite (z.B. https://name.netlify.app) – damit die App Quellen direkt hinzufügen kann."
 }

@@ -90,6 +90,14 @@ def source_list(settings: dict) -> list[dict]:
     return items
 
 
+def current_runs(settings: dict) -> list[dict]:
+    """Nur die Läufe der aktuell eingestellten Quellen (alte, entfernte Quellen nicht mehr anzeigen)."""
+    from .sources.events_page import source_name
+    names = {"kleinanzeigen", "Flohmarkt-Kalender", "Kieler Nachrichten"}
+    names |= {source_name(u) for u in settings.get("extra_urls") or []}
+    return [r for r in db.last_runs() if r["source"] in names]
+
+
 def export(out: Path, settings: dict) -> int:
     out.mkdir(parents=True, exist_ok=True)
     root_files = ("index.html", "sw.js", "manifest.webmanifest", "icon.svg")
@@ -129,7 +137,7 @@ def export(out: Path, settings: dict) -> int:
         "region": {k: settings.get(k) for k in ("home_query", "home_label", "home_lat", "home_lon", "radius_km",
                                                   "days_ahead")},
         "categories": CATEGORY_LABELS,
-        "runs": db.last_runs(),
+        "runs": current_runs(settings),
         "sources": source_list(settings),
         "site_url": settings.get("site_url") or "",
         "events": events,
