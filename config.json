@@ -22,8 +22,7 @@
   "extra_urls": [
     "https://dein.nebenan.de/lp/flohmarkt",
     "https://www.hochberg-flohmarkt.de/index_start.php",
-    "https://www.kielerexpress-online.de/kieler-express-epaper.php",
-    "https://m.facebook.com"
+    "https://www.kielerexpress-online.de/kieler-express-epaper.php"
   ],
   "_hinweis_home": "24146 = Kiel-Elmschenhagen",
   "_hinweis_app_url": "Adresse der Webseite (z.B. https://name.netlify.app). Die Android-App zeigt dann genau diese Seite; leer = eingebaute Oberfläche.",
