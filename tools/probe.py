@@ -1,81 +1,66 @@
-"""Lädt Beispielseiten eines Anbieters und gibt eine kompakte Auswertung aus (nur zur Entwicklung).
+"""Prüft öffentliche Feeds der Kieler Nachrichten (nur zur Entwicklung).
 
-Es wird nichts ins Repository geschrieben; die Rohseiten landen als Artifact am Workflow-Lauf.
-Aktuell: Kieler Nachrichten (kn-online.de) – wo gibt es Anzeigen / Termine?
+Die Webseite kn-online.de sperrt automatische Abrufe (403). Feeds (RSS) sind dagegen für
+automatisches Lesen gedacht – hier wird geprüft, welche erreichbar sind und was sie liefern.
 """
-import json
 import pathlib
 import re
 import sys
 import time
-from urllib.parse import urljoin
+import xml.etree.ElementTree as ET
 
 import httpx
-from bs4 import BeautifulSoup
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-from app.sources import events_page  # noqa: E402
 from app.sources.base import BROWSER_HEADERS  # noqa: E402
 
 out = pathlib.Path("probe")
 out.mkdir(exist_ok=True)
-c = httpx.Client(headers=BROWSER_HEADERS, timeout=30, follow_redirects=True)
+c = httpx.Client(headers={**BROWSER_HEADERS, "Accept": "application/rss+xml, application/xml, text/xml, */*"},
+                 timeout=30, follow_redirects=True)
 
+URLS = [
+    "https://www.kn-online.de/arc/outboundfeeds/rss/",
+    "https://www.kn-online.de/arc/outboundfeeds/rss/category/lokales/kiel/",
+    "https://www.kn-online.de/arc/outboundfeeds/rss/category/lokales/",
+    "https://www.kn-online.de/arc/outboundfeeds/rss/category/lokales/ploen/",
+    "https://www.kn-online.de/arc/outboundfeeds/rss/category/lokales/rendsburg/",
+    "https://www.kn-online.de/arc/outboundfeeds/rss/category/lokales/eckernfoerde/",
+    "https://www.kn-online.de/arc/outboundfeeds/sitemap/",
+    "https://www.kn-online.de/rss/",
+    "https://www.kn-online.de/feed/",
+    "https://www.kn-online.de/robots.txt",
+    "https://news.google.com/rss/search?q=Flohmarkt+site:kn-online.de&hl=de&gl=DE&ceid=DE:de",
+    "https://news.google.com/rss/search?q=Tr%C3%B6delmarkt+OR+Flohmarkt+OR+Haushaltsaufl%C3%B6sung+site:kn-online.de+when:30d&hl=de&gl=DE&ceid=DE:de",
+    "https://www.bing.com/news/search?q=Flohmarkt+site%3akn-online.de&format=rss",
+]
 
-def cut(x, n):
-    return re.sub(r"\s+", " ", str(x))[:n]
-
-
-def get(name, url):
+for i, url in enumerate(URLS):
     time.sleep(1.5)
     try:
         r = c.get(url)
     except Exception as e:  # noqa: BLE001
-        print(f"\n##### {name} ERROR {e}")
-        return ""
-    (out / f"{name}.html").write_text(r.text)
-    soup = BeautifulSoup(r.text, "html.parser")
-    t = soup.title.get_text(strip=True) if soup.title else ""
-    print(f"\n##### {name} {r.status_code} {r.url} len={len(r.text)} title={cut(t, 100)!r}")
-    types = {}
-    for s in soup.find_all("script", type="application/ld+json"):
-        for mt in re.findall(r'"@type"\s*:\s*"(\w+)"', s.get_text()):
-            types[mt] = types.get(mt, 0) + 1
-    print("LD TYPES:", types)
-    items = events_page.parse_html(r.text, str(r.url))
-    print("EVENTS:", len(items), [(i["title"][:50], str(i["start"])) for i in items[:5]])
-    return r.text
-
-
-def links(html, base, pat, n=40):
-    soup = BeautifulSoup(html, "html.parser")
-    hs = []
-    for a in soup.find_all("a", href=True):
-        h = urljoin(base, a["href"].strip())
-        txt = cut(a.get_text(" "), 60)
-        if re.search(pat, h + " " + txt, re.I) and h not in [x[0] for x in hs]:
-            hs.append((h, txt))
-    print("LINKS", pat)
-    for h, t in hs[:n]:
-        print("   ", h, "|", t)
-
-
-home = get("kn_home", "https://www.kn-online.de/")
-links(home, "https://www.kn-online.de/", r"anzeig|markt|veranstalt|termin|flohmarkt|trödel|kalender|service|freizeit")
-
-for name, url in [
-    ("kn_anzeigen", "https://www.kn-online.de/anzeigen/"),
-    ("kn_kleinanzeigen", "https://www.kn-online.de/kleinanzeigen/"),
-    ("kn_marktplatz", "https://www.kn-online.de/marktplatz/"),
-    ("kn_veranstaltungen", "https://www.kn-online.de/veranstaltungen/"),
-    ("kn_freizeit", "https://www.kn-online.de/freizeit/"),
-    ("kn_anzeigen_sub", "https://anzeigen.kn-online.de/"),
-    ("kn_kleinanzeigen_sub", "https://kleinanzeigen.kn-online.de/"),
-    ("kn_markt_sub", "https://markt.kn-online.de/"),
-    ("kn_suche_floh", "https://www.kn-online.de/suche/?q=flohmarkt"),
-    ("kn_tag_floh", "https://www.kn-online.de/themen/flohmarkt/"),
-]:
-    h = get(name, url)
-    if h:
-        links(h, url, r"anzeig|flohmarkt|trödel|haushalt|termin|veranstalt|rubrik|kategorie", 25)
+        print(f"\n##### {url}\nERROR {e}")
+        continue
+    body = r.text
+    (out / f"feed_{i}.xml").write_text(body)
+    print(f"\n##### {url}\nSTATUS {r.status_code} type={r.headers.get('content-type')} len={len(body)} final={r.url}")
+    if "robots" in url:
+        print(body[:1500])
+        continue
+    try:
+        root = ET.fromstring(body.encode())
+    except ET.ParseError:
+        print("KEIN XML:", re.sub(r"\s+", " ", body[:300]))
+        continue
+    items = root.findall(".//item")
+    print("ITEMS:", len(items))
+    for it in items[:12]:
+        t = (it.findtext("title") or "").strip()
+        d = (it.findtext("pubDate") or "").strip()
+        desc = re.sub(r"<[^>]+>|\s+", " ", it.findtext("description") or "")[:160]
+        print("  -", d[:16], "|", t[:110], "|", desc)
+    floh = [it.findtext("title") for it in items
+            if re.search(r"floh|trödel|basar|haushaltsaufl|flohmärkte", (it.findtext("title") or "") + (it.findtext("description") or ""), re.I)]
+    print("FLOHMARKT-TREFFER:", len(floh), floh[:8])
 print("=====END")
