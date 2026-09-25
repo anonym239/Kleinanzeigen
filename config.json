@@ -19,7 +19,9 @@
   "detail_fetch_limit": 80,
   "calendars_enabled": true,
   "_hinweis_extra_urls": "Weitere Terminkalender (schema.org-Events oder .ics), z.B. von Stadt oder Kirchengemeinde.",
-  "extra_urls": [],
+  "extra_urls": [
+    "https://dein.nebenan.de/lp/flohmarkt"
+  ],
   "_hinweis_home": "24146 = Kiel-Elmschenhagen",
   "_hinweis_app_url": "Adresse der Webseite (z.B. https://name.netlify.app). Die Android-App zeigt dann genau diese Seite; leer = eingebaute Oberfläche.",
   "app_url": "",
