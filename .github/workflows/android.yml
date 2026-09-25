@@ -1,0 +1,74 @@
+name: Android-App bauen (APK)
+# Baut die Android-App und veröffentlicht sie als GitHub-Release.
+# Download-Link (immer die neueste Version):
+#   https://github.com/anonym239/Kleinanzeigen/releases/latest/download/Flohmarkt-Finder.apk
+on:
+  workflow_dispatch:
+  push:
+    paths: [android/**, app/static/**, app/build_site.py, .github/workflows/android.yml]
+
+permissions:
+  contents: write   # Release anlegen
+
+concurrency:
+  group: android
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: "8.9" }
+
+      - name: Oberfläche in die App legen
+        run: python -m app.build_site --app-assets android/app/src/main/assets/www
+
+      - name: Eigenen Signatur-Schlüssel verwenden (falls als Secret hinterlegt)
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.p12"
+            echo "KEYSTORE_FILE=$RUNNER_TEMP/release.p12" >> "$GITHUB_ENV"
+          fi
+
+      - name: APK bauen
+        working-directory: android
+        env:
+          VERSION_CODE: ${{ github.run_number }}
+          VERSION_NAME: 1.${{ github.run_number }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          # leere Secrets nicht als Passwort verwenden
+          [ -z "$KEYSTORE_PASSWORD" ] && unset KEYSTORE_PASSWORD KEY_PASSWORD
+          gradle --no-daemon assembleRelease
+          cp app/build/outputs/apk/release/app-release.apk ../Flohmarkt-Finder.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Flohmarkt-Finder-apk
+          path: Flohmarkt-Finder.apk
+
+      - name: Release veröffentlichen
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: app-v1.${{ github.run_number }}
+          name: Flohmarkt-Finder App 1.${{ github.run_number }}
+          make_latest: "true"
+          files: Flohmarkt-Finder.apk
+          body: |
+            **Flohmarkt-Finder für Android** (ab Android 8, z.B. Android 12)
+
+            1. `Flohmarkt-Finder.apk` unten herunterladen und öffnen.
+            2. Beim ersten Mal fragt das Handy, ob Apps aus dieser Quelle installiert werden dürfen → „Zulassen“.
+            3. Updates: neue APK einfach drüber installieren – Favoriten und Notizen bleiben erhalten.
+
+            Die Termine aktualisiert die App selbst (alle 3 Stunden neu von GitHub).

@@ -306,3 +306,61 @@ legend { font-family: var(--display); font-weight: 800; padding-inline: 6px; }
 .results > .cat-chips .cat-chip { flex: none; }
 @media (min-width: 900px) { .results > .cat-chips { flex-wrap: wrap; } }
 html.static-mode .server-only, html:not(.static-mode) .static-only { display: none !important; }
+
+/* ---------- Symbole je Art ---------- */
+.cat-ico { width: 1.2em; height: 1.2em; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.cat-ico.sm { width: 1.05em; height: 1.05em; }
+.pill.cat::before { content: none; }
+.cat-chip .cat-ico { color: var(--cat); width: 1.35em; height: 1.35em; }
+.cat-chip[aria-pressed="true"] .cat-ico { stroke-width: 2.2; }
+
+/* Bild-Platzhalter, wenn eine Anzeige kein Foto hat */
+.thumb.ph {
+  display: grid; place-items: center; color: var(--cat);
+  background: color-mix(in srgb, var(--cat) 14%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--cat) 25%, transparent);
+}
+.thumb.ph .cat-ico { width: 46%; height: 46%; stroke-width: 1.5; }
+
+/* Zeitraum-Knöpfe mit Anzahl */
+.range-bar .rn {
+  display: inline-block; min-width: 1.7em; margin-left: 4px; padding: 0 7px; border-radius: 999px;
+  background: var(--surface-2); color: var(--ink-soft); font-size: .85em; font-variant-numeric: tabular-nums;
+}
+.range-bar button[aria-pressed="true"] .rn { background: color-mix(in srgb, var(--accent-ink) 22%, transparent); color: var(--accent-ink); }
+
+/* Tagesübersicht (z.B. Samstag / Sonntag) */
+.day-overview { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+.day-tile {
+  display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border-radius: var(--radius);
+  background: var(--surface); border: 1px solid var(--line); text-decoration: none; color: var(--ink);
+  box-shadow: var(--shadow); position: relative; overflow: hidden;
+}
+.day-tile::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 5px; background: var(--tag); }
+.day-tile:hover { border-color: var(--accent); }
+.dt-day { font-family: var(--display); font-weight: 800; font-size: 1.1rem; }
+.dt-date { color: var(--ink-soft); font-size: .9rem; }
+.dt-n { margin-top: 4px; font-size: .95rem; }
+.dt-n strong { font-size: 1.35rem; font-variant-numeric: tabular-nums; color: var(--accent); }
+.day-head { scroll-margin-top: calc(var(--topbar-h, 120px) + 8px); }
+
+/* Karte: nur zwei Knöpfe, Rest in der Detailansicht */
+.card-actions { align-items: center; }
+.card .more { margin-left: auto; color: var(--ink-soft); font-size: .9rem; font-weight: 700; }
+.pill.src { background: transparent; border: 1px solid var(--line); }
+
+/* Karten-Pins (Tropfenform mit Symbol) */
+.pin {
+  width: var(--s); height: var(--s); display: grid; place-items: center; color: #fff;
+  background: var(--cat); border: 2px solid #fff; border-radius: 50% 50% 50% 0; transform: rotate(-45deg);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .35);
+}
+.pin .cat-ico { transform: rotate(45deg); width: 58%; height: 58%; stroke-width: 2; }
+.pin.fav { border-color: var(--tag); box-shadow: 0 0 0 3px var(--tag), 0 2px 8px rgba(0, 0, 0, .4); }
+
+@media (max-width: 899px) {
+  .act span { display: inline; }
+  .act { padding: 6px 12px; }
+  .day-overview { grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
+}
+html.in-app .web-only { display: none !important; }

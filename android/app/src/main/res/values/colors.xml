@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="brand">#0E6F60</color>
+    <color name="paper">#EEF2F0</color>
+    <color name="tag">#F3C63F</color>
+    <color name="tag_ink">#3A2C00</color>
+</resources>

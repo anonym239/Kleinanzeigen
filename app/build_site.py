@@ -112,13 +112,34 @@ def export(out: Path, settings: dict) -> int:
     return len(events)
 
 
+def export_app_assets(out: Path, data_url: str) -> None:
+    """Oberfläche für die Android-App: gleiche Seite, Termine kommen aus dem GitHub-Branch "live"."""
+    if out.exists():
+        shutil.rmtree(out)
+    root_files = ("index.html", "manifest.webmanifest", "icon.svg")
+    shutil.copytree(STATIC, out / "static", ignore=shutil.ignore_patterns(*root_files, "sw.js"))
+    for name in root_files:
+        shutil.copy(STATIC / name, out / name)
+    (out / "static" / "mode.js").write_text(
+        "window.FLOHMARKT_STATIC = true;\n"
+        "window.FLOHMARKT_APP = true;\n"
+        f"window.FLOHMARKT_DATA_URL = {json.dumps(data_url)};\n"
+    )
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="config.json")
     ap.add_argument("--out", default="site")
     ap.add_argument("--no-scrape", action="store_true", help="nur Seite aus vorhandenen Daten bauen")
+    ap.add_argument("--app-assets", help="nur die Oberfläche für die Android-App in diesen Ordner legen")
+    ap.add_argument("--data-url", default="https://raw.githubusercontent.com/anonym239/Kleinanzeigen/live/data/events.json")
     args = ap.parse_args()
+    if args.app_assets:
+        export_app_assets(Path(args.app_assets), args.data_url)
+        log.info("App-Oberfläche nach %s gelegt (Daten: %s)", args.app_assets, args.data_url)
+        return
     settings = apply_config(json.loads(Path(args.config).read_text(encoding="utf-8")))
     if not args.no_scrape:
         scraper.run_all()

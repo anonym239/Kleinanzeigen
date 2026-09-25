@@ -12,14 +12,16 @@ const store = {
 };
 
 const DEFAULT_FILTERS = {
-  range: "days", cats: [], q: "", radius: null, weekendOnly: false, favOnly: false,
-  undated: true, noLocation: false, services: false, showHidden: false, source: "", sort: "date",
+  range: "weekend", cats: [], q: "", radius: null, weekendOnly: false, favOnly: false,
+  undated: false, noLocation: false, services: false, showHidden: false, source: "", sort: "date",
 };
+const FILTER_KEY = "filters.v2"; // neue Standardwerte (ohne Datum aus) gelten auch für bisherige Besucher
 const CAT_COLORS = ["flohmarkt", "hof", "haushalt", "kinder", "antik", "sonstiges"];
 
 const S = {
   events: [], settings: {}, categories: {}, today: null,
-  filters: { ...DEFAULT_FILTERS, ...store.get("filters", {}) },
+  // Startansicht ist immer "Dieses Wochenende"; übrige Filter bleiben gespeichert
+  filters: { ...DEFAULT_FILTERS, ...store.get(FILTER_KEY, {}), range: "weekend" },
   view: store.get("view", "list"),
   map: null, mapLayer: null, prevVisit: 0, polling: null,
 };
@@ -59,6 +61,18 @@ function icon(name) {
   return `<svg viewBox="0 0 24 24" aria-hidden="true">${p}</svg>`;
 }
 
+/* Symbole je Art (Marktstand, Garage, Sessel, Teddy, Vase, Preisschild) */
+const CAT_ICONS = {
+  flohmarkt: '<path d="M3 9.5 5 4h14l2 5.5"/><path d="M3 9.5h18c0 1.7-1.3 3-3 3s-3-1.3-3-3c0 1.7-1.3 3-3 3s-3-1.3-3-3c0 1.7-1.3 3-3 3s-3-1.3-3-3Z"/><path d="M5 12.5V20h14v-7.5M10 20v-4.5h4V20"/>',
+  hof: '<path d="M3 11 12 4l9 7"/><path d="M5 9.5V20h14V9.5"/><path d="M8 20v-7h8v7M8 15.5h8M8 18h8"/>',
+  haushalt: '<path d="M6 11V8a3 3 0 0 1 3-3h6a3 3 0 0 1 3 3v3"/><path d="M3.5 13a2 2 0 0 1 4 0v2h9v-2a2 2 0 0 1 4 0v5h-17Z"/><path d="M6 18v2M18 18v2"/>',
+  kinder: '<circle cx="12" cy="13.5" r="6"/><circle cx="6.8" cy="6.8" r="2.3"/><circle cx="17.2" cy="6.8" r="2.3"/><path d="M10.2 12.2h.01M13.8 12.2h.01M10.5 15.6c1 .8 2 .8 3 0"/>',
+  antik: '<path d="M9 3h6M10 3v3.5C7 8.5 6 11 6.8 14.5 7.5 17.5 9.5 20 12 20s4.5-2.5 5.2-5.5C18 11 17 8.5 14 6.5V3"/><path d="M7 12h10"/>',
+  sonstiges: '<path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9Z"/><circle cx="8" cy="8" r="1.5"/>',
+};
+const catKey = (k) => (CAT_COLORS.includes(k) ? k : "sonstiges");
+const catIcon = (k, cls = "") => `<svg class="cat-ico ${cls}" viewBox="0 0 24 24" aria-hidden="true">${CAT_ICONS[catKey(k)]}</svg>`;
+
 function toast(msg, ms = 3500) {
   const t = $("#toast");
   t.textContent = msg; t.hidden = false;
@@ -67,6 +81,7 @@ function toast(msg, ms = 3500) {
 
 const STATIC = !!window.FLOHMARKT_STATIC;
 if (STATIC) document.documentElement.classList.add("static-mode");
+if (window.FLOHMARKT_APP) document.documentElement.classList.add("in-app");
 
 async function api(path, opts = {}) {
   if (STATIC) return localApi(path.replace(/^\//, ""), opts);
@@ -102,7 +117,8 @@ async function geocodeBrowser(q) {
 
 async function loadStaticData(force = false) {
   if (L$.data && !force) return L$.data;
-  const r = await fetch(`data/events.json?t=${Date.now()}`, { cache: "no-store" });
+  const src = window.FLOHMARKT_DATA_URL || "data/events.json";
+  const r = await fetch(`${src}?t=${Date.now()}`, { cache: "no-store" });
   if (!r.ok) throw new Error("Die Termin-Daten wurden noch nicht erzeugt. Bitte später erneut versuchen.");
   L$.data = await r.json();
   return L$.data;
@@ -212,6 +228,12 @@ function icsFor(evs) {
 }
 
 function downloadIcs(ev) {
+  if (window.AndroidApp && ev.start_date) {
+    const start = parseISO(ev.start_date), end = addDays(parseISO(ev.end_date || ev.start_date), 1);
+    window.AndroidApp.addToCalendar(ev.title + (ev.time_text ? ` (${ev.time_text})` : ""), start.getTime(), end.getTime(),
+      ev.address || ev.location || "", [ev.time_text, (ev.description || "").slice(0, 800), ev.url].filter(Boolean).join("\n"));
+    return;
+  }
   if (!STATIC) { location.href = `api/events/${encodeURIComponent(ev.id)}/ics`; return; }
   const url = URL.createObjectURL(new Blob([icsFor([ev])], { type: "text/calendar" }));
   const a = Object.assign(document.createElement("a"), { href: url, download: "termin.ics" });
@@ -227,7 +249,7 @@ function rangeBounds(range) {
   if (dow === 0) sat = addDays(t, -1);
   switch (range) {
     case "today": return [t, t];
-    case "weekend": return [dow === 0 ? t : sat, addDays(sat, 1)];
+    case "weekend": return [dow === 0 || dow === 5 ? t : sat, addDays(sat, 1)]; // freitags inkl. Freitag
     case "nextweekend": return [addDays(sat, 7), addDays(sat, 8)];
     case "days": return [t, addDays(t, (S.settings.days_ahead || 14))];
     default: return [t, null];
@@ -314,17 +336,20 @@ function routeUrl(ev) {
 }
 
 function cardHTML(ev) {
-  const img = ev.image ? `<img class="thumb" src="${esc(ev.image)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.closest('.card').classList.add('no-img');this.remove()">` : "";
+  const k = catKey(ev.category);
+  const placeholder = `<div class="thumb ph" aria-hidden="true">${catIcon(k)}</div>`;
+  const media = ev.image
+    ? `<img class="thumb" src="${esc(ev.image)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.outerHTML=this.nextElementSibling.innerHTML"><template>${placeholder}</template>`
+    : placeholder;
   const pills = [
-    `<span class="pill cat">${esc(ev.category_label)}</span>`,
+    `<span class="pill cat">${catIcon(k, "sm")}${esc(ev.category_label)}</span>`,
     isNew(ev) ? `<span class="pill new">NEU</span>` : "",
     ev.is_service ? `<span class="pill warn">Firma/Werbung</span>` : "",
-    `<span class="pill">${esc(sourceLabel(ev.source))}</span>`,
-    ev.price && !/^(VB|zu verschenken)?$/i.test(ev.price) ? `<span class="pill">${esc(ev.price)}</span>` : "",
+    `<span class="pill src">${ev.source === "kleinanzeigen" ? "Privat · Kleinanzeigen" : ev.manual ? "Eigener Eintrag" : "Markt-Kalender"}</span>`,
   ].join("");
   return `
-  <article class="card ${img ? "" : "no-img"} ${ev.hidden ? "is-hidden" : ""}" style="--cat: var(--c-${CAT_COLORS.includes(ev.category) ? ev.category : "sonstiges"})" data-id="${esc(ev.id)}" tabindex="0">
-    ${img}
+  <article class="card ${ev.hidden ? "is-hidden" : ""}" style="--cat: var(--c-${k})" data-id="${esc(ev.id)}" tabindex="0">
+    ${media}
     <div class="card-body">
       <div class="card-top">${pills}</div>
       <h3>${esc(ev.title)}</h3>
@@ -332,12 +357,11 @@ function cardHTML(ev) {
         <div>${icon("cal")}<span>${dateLine(ev)}</span></div>
         <div>${icon("pin")}<span>${placeLine(ev)}</span></div>
       </div>
-      ${ev.description ? `<p class="snippet">${esc(ev.description)}</p>` : ""}
       <div class="card-actions">
-        <button class="act fav" type="button" data-act="fav" aria-pressed="${ev.favorite}" title="Merken">${icon("star")}<span>${ev.favorite ? "Gemerkt" : "Merken"}</span></button>
-        <a class="act" href="${routeUrl(ev)}" target="_blank" rel="noopener" data-act="link" title="Route planen">${icon("route")}<span>Route</span></a>
-        ${ev.start_date ? `<button class="act" type="button" data-act="ics" title="In den Kalender">${icon("cal")}<span>Kalender</span></button>` : ""}
-        <button class="act" type="button" data-act="hide" title="${ev.hidden ? "Wieder anzeigen" : "Ausblenden"}">${icon(ev.hidden ? "eye" : "eyeoff")}<span>${ev.hidden ? "Einblenden" : "Ausblenden"}</span></button>
+        <button class="act fav" type="button" data-act="fav" aria-pressed="${ev.favorite}">${icon("star")}<span>${ev.favorite ? "Gemerkt" : "Merken"}</span></button>
+        <a class="act" href="${routeUrl(ev)}" target="_blank" rel="noopener" data-act="link">${icon("route")}<span>Route</span></a>
+        ${ev.hidden ? `<button class="act" type="button" data-act="hide">${icon("eye")}<span>Einblenden</span></button>` : ""}
+        <span class="more" aria-hidden="true">Details ›</span>
       </div>
     </div>
   </article>`;
@@ -364,11 +388,20 @@ function renderList(list) {
     groups.get(key).push(ev);
   }
   let html = "";
+  const days = [...groups.keys()].filter(Boolean);
+  if (days.length >= 2 && days.length <= 4) {
+    html += `<nav class="day-overview" aria-label="Tage">` + days.map((d) => `
+      <a class="day-tile" href="#tag-${d}">
+        <span class="dt-day">${esc(parseISO(d).toLocaleDateString("de-DE", { weekday: "long" }))}</span>
+        <span class="dt-date">${esc(parseISO(d).toLocaleDateString("de-DE", { day: "numeric", month: "numeric" }))}</span>
+        <span class="dt-n"><strong>${groups.get(d).length}</strong> ${groups.get(d).length === 1 ? "Termin" : "Termine"}</span>
+      </a>`).join("") + `</nav>`;
+  }
   for (const [day, evs] of groups) {
     const head = day
       ? `<span class="day-tag">${esc(fmtDay(day))}</span><span class="day-rel">${relDay(day)}</span>`
       : `<span class="day-tag muted">Ohne erkanntes Datum</span><span class="day-rel">Datum steht evtl. im Text</span>`;
-    html += `<div class="day-head">${head}<span class="day-count">${evs.length}</span></div>` + evs.map(cardHTML).join("");
+    html += `<div class="day-head" id="tag-${day || "ohne-datum"}">${head}<span class="day-count">${evs.length}</span></div>` + evs.map(cardHTML).join("");
   }
   el.innerHTML = html;
 }
@@ -381,7 +414,7 @@ function renderCats() {
     .filter(([key]) => counts[key] || f.cats.includes(key) || key !== "sonstiges")
     .map(([key, label]) => `
     <button type="button" class="cat-chip" style="--cat: var(--c-${key})" data-cat="${key}" aria-pressed="${f.cats.includes(key)}">
-      <span class="dot"></span>${esc(label)} <span class="n">${counts[key] || 0}</span>
+      ${catIcon(key)}${esc(label)} <span class="n">${counts[key] || 0}</span>
     </button>`).join("");
 }
 
@@ -394,8 +427,14 @@ function renderSources() {
 
 function syncControls() {
   const f = S.filters;
-  $$("#rangeBar button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.range === f.range)));
-  $('#rangeBar [data-range="days"]').textContent = `Nächste ${S.settings.days_ahead || 14} Tage`;
+  const labels = { today: "Heute", weekend: "Dieses Wochenende", nextweekend: "Nächstes Wochenende",
+    days: `Nächste ${S.settings.days_ahead || 14} Tage`, all: "Alle" };
+  $$("#rangeBar button").forEach((b) => {
+    const r = b.dataset.range;
+    const n = S.events.filter((ev) => ev.start_date && passesBase(ev, { ...f, range: r, undated: false })).length;
+    b.setAttribute("aria-pressed", String(r === f.range));
+    b.innerHTML = `${labels[r]} <span class="rn">${n}</span>`;
+  });
   $("#q").value = f.q;
   $("#radius").value = radiusValue();
   $("#radiusOut").textContent = `${radiusValue()} km`;
@@ -408,7 +447,7 @@ function syncControls() {
 }
 
 function render() {
-  store.set("filters", S.filters);
+  store.set(FILTER_KEY, S.filters);
   const list = filtered();
   const undated = list.filter((e) => !e.start_date).length;
   $("#count").textContent = `${list.length} ${list.length === 1 ? "Termin" : "Termine"}${undated ? ` (davon ${undated} ohne Datum)` : ""}`;
@@ -462,8 +501,16 @@ function renderMap(list, fit = true) {
   }
   for (const ev of list) {
     if (ev.lat == null) continue;
-    const color = css.getPropertyValue(`--c-${CAT_COLORS.includes(ev.category) ? ev.category : "sonstiges"}`).trim();
-    const m = L.circleMarker([ev.lat, ev.lon], { radius: ev.favorite ? 11 : 8, color: "#fff", weight: 2, fillColor: color, fillOpacity: 0.95 });
+    const k = catKey(ev.category);
+    const size = ev.favorite ? 40 : 32;
+    const m = L.marker([ev.lat, ev.lon], {
+      title: ev.title,
+      icon: L.divIcon({
+        className: "",
+        html: `<div class="pin ${ev.favorite ? "fav" : ""}" style="--cat: var(--c-${k}); --s: ${size}px">${catIcon(k)}</div>`,
+        iconSize: [size, size], iconAnchor: [size / 2, size], popupAnchor: [0, -size],
+      }),
+    });
     m.bindPopup(`<div class="map-pop"><strong>${esc(ev.title)}</strong>${dateLine(ev)}<br>${placeLine(ev)}<br><button class="btn primary" type="button" data-open="${esc(ev.id)}">Details</button></div>`);
     m.addTo(S.mapLayer);
     pts.push([ev.lat, ev.lon]);
@@ -523,9 +570,12 @@ async function setState(ev, patch, rerender = true) {
   } catch (e) { toast(e.message); }
 }
 
+const APP = window.AndroidApp || null; // in der Android-App vorhanden
+
 async function shareEvent(ev) {
   const text = `${ev.title}\n${ev.start_date ? fmtDay(ev.start_date) : ""} ${ev.time_text || ""}\n${ev.address || ev.location || ""}`.trim();
   const url = ev.url || routeUrl(ev);
+  if (APP) { APP.share(`${text}\n${url}`); return; }
   if (navigator.share) {
     try { await navigator.share({ title: ev.title, text, url }); return; } catch { /* abgebrochen */ }
   }
@@ -791,7 +841,7 @@ async function main() {
   }
   const st = await pollStatus();
   if (st && !st.last_finished && !st.runs.length && S.settings.home_query && !st.running) startRefresh();
-  if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+  if ("serviceWorker" in navigator && !window.FLOHMARKT_APP) navigator.serviceWorker.register("sw.js").catch(() => {});
 }
 
 main();
