@@ -662,6 +662,8 @@ async function openSettings() {
   $("#icsUrl").value = new URL("api/favorites.ics", location.href).href;
   $("#settingsError").hidden = true;
   $("#settings").showModal();
+  $("#sourceError").hidden = true;
+  if (STATIC) renderSourceList();
   try {
     const st = await api("/api/status");
     const when = (ts) => ts ? new Date(ts * 1000).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" }) : "noch nie";
@@ -671,6 +673,45 @@ async function openSettings() {
         <small>${when(r.finished)} · ${r.ok ? `${r.found} gefunden, ${esc(r.message)}` : `Fehler: ${esc(r.message)}`}</small></div>`).join("")
       : `<p class="hint">Es wurde noch nicht gesucht.</p>`) + `<p class="hint">Insgesamt ${st.total_events} Einträge gespeichert.</p>`;
   } catch { /* egal */ }
+}
+
+/* ---------- Eigene Quellen (Betrieb ohne Server) ---------- */
+const REPO = window.FLOHMARKT_REPO || "anonym239/Kleinanzeigen";
+
+function openExternal(url) {
+  const a = Object.assign(document.createElement("a"), { href: url, target: "_blank", rel: "noopener" });
+  document.body.append(a); a.click(); a.remove();
+}
+
+function sourceIssue(action, url) {
+  const title = `Quelle ${action === "add" ? "hinzufügen" : "entfernen"}: ${url}`;
+  const body = action === "add"
+    ? `Bitte diese Webseite als Quelle für den Flohmarkt-Finder aufnehmen:\n\n${url}\n\n(Einfach auf „Submit new issue“ tippen – der Rest passiert automatisch.)`
+    : `Bitte diese Quelle entfernen:\n\n${url}`;
+  openExternal(`https://github.com/${REPO}/issues/new?title=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`);
+}
+
+function renderSourceList() {
+  const data = L$.data;
+  if (!data) return;
+  const when = (ts) => ts ? new Date(ts * 1000).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" }) : "";
+  const runFor = (src) => (data.runs || []).find((r) =>
+    r.source === src.name || (src.name === "Kleinanzeigen" && r.source === "kleinanzeigen"));
+  const counts = {};
+  for (const e of data.events) counts[e.source] = (counts[e.source] || 0) + 1;
+  $("#sourceList").innerHTML = (data.sources || []).map((src) => {
+    const run = runFor(src);
+    const n = src.name === "Kleinanzeigen" ? counts.kleinanzeigen
+      : src.name === "Flohmarkt-Kalender" ? (counts["krencky24.de"] || 0) + (counts["meine-flohmarkt-termine.de"] || 0)
+      : counts[src.name];
+    const state = !run ? "wartet auf ersten Suchlauf" : run.ok ? `${n || 0} Termine · zuletzt ${when(run.finished)}` : `Fehler: ${run.message}`;
+    return `<div class="src-row">
+      <span class="state ${run && !run.ok ? "bad" : !run ? "wait" : ""}"></span>
+      <div class="src-main"><strong>${esc(src.name)}</strong>${src.builtin ? ` <span class="pill">fest eingebaut</span>` : ""}
+        <small>${esc(state)}</small></div>
+      ${src.builtin ? "" : `<button class="link-btn" type="button" data-remove-src="${esc(src.url)}">Entfernen</button>`}
+    </div>`;
+  }).join("") || `<p class="hint">Noch keine Quellen.</p>`;
 }
 
 async function saveSettings() {
@@ -832,6 +873,22 @@ function bind() {
     await loadEvents(); toast(`${r.restored} Termine wiederhergestellt`);
   });
 
+  $("#addSource").addEventListener("click", () => {
+    let url = $("#newSource").value.trim();
+    if (url && !/^https?:\/\//i.test(url)) url = `https://${url}`;
+    let ok = false;
+    try { ok = !!new URL(url).hostname.includes("."); } catch { ok = false; }
+    if (!ok) { $("#sourceError").textContent = "Bitte eine Webadresse eingeben, z.B. https://www.kieler-express.de"; $("#sourceError").hidden = false; return; }
+    $("#sourceError").hidden = true;
+    sourceIssue("add", url);
+    $("#newSource").value = "";
+  });
+  $("#sourceList").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-remove-src]");
+    if (!b) return;
+    if (b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.textContent = "Wirklich entfernen?"; return; }
+    sourceIssue("remove", b.dataset.removeSrc);
+  });
   $("#addBtn").addEventListener("click", openAdd);
   $("#addForm").addEventListener("submit", submitAdd);
   $("#addDialog").addEventListener("click", (e) => { if (e.target === $("#addDialog") || e.target.closest("[data-close]")) $("#addDialog").close(); });

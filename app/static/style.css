@@ -366,3 +366,9 @@ html.static-mode .server-only, html:not(.static-mode) .static-only { display: no
 html.in-app .web-only { display: none !important; }
 .err-detail { margin-top: 12px; font-size: .8rem; overflow-wrap: anywhere; }
 .brand-logo { width: 2.1em; height: 2.1em; flex: none; display: block; }
+.source-list { display: flex; flex-direction: column; gap: 10px; }
+.source-list .src-row { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 10px; align-items: start; }
+.src-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.src-main small { color: var(--ink-soft); overflow-wrap: anywhere; }
+.src-row .state.wait { background: var(--tag); }
+.src-main .pill { align-self: flex-start; }

@@ -203,3 +203,23 @@ REAL_KIEL = [
 def test_real_kiel_titles(title, price, has_date, expected):
     from app.classify import is_event_ad
     assert is_event_ad(title, "", price, has_date, False) is expected
+
+
+EXPRESS_HTML = """<html><body><nav>Flohmarkt Menü 01.01.</nav>
+<div class="rubrik"><h2>Flohmärkte &amp; Märkte</h2>
+ <div class="anzeige"><strong>Hofflohmarkt in Elmschenhagen</strong> Sa. 04.10. von 9-14 Uhr,
+   Allgäuer Straße 16, 24146 Kiel. Alles muss raus! <a href="/anzeige/123">mehr</a></div>
+ <div class="anzeige"><b>Kinderflohmarkt Kita Sonnenschein</b> am 11. Oktober, 24223 Schwentinental</div>
+ <div class="anzeige"><b>Verkaufe Sofa</b> 3-Sitzer, 50 €, Tel. 0431/123</div>
+ <div class="anzeige"><b>Flohmarkt</b> war am 01.08., danke an alle</div>
+</div></body></html>"""
+
+
+def test_text_blocks_generic_page():
+    items = events_page.parse_text_blocks(EXPRESS_HTML, "https://kieler-express.example/kleinanzeigen", date(2026, 9, 25))
+    titles = {i["title"]: i for i in items}
+    assert set(titles) == {"Hofflohmarkt in Elmschenhagen", "Kinderflohmarkt Kita Sonnenschein"}
+    hof = titles["Hofflohmarkt in Elmschenhagen"]
+    assert hof["start"] == date(2026, 10, 4) and hof["time_text"] == "9–14 Uhr"
+    assert hof["address"] == "24146 Kiel" and hof["url"] == "https://kieler-express.example/anzeige/123"
+    assert titles["Kinderflohmarkt Kita Sonnenschein"]["address"] == "24223 Schwentinental"

@@ -217,8 +217,68 @@ def source_name(url: str) -> str:
     return urlparse(url).netloc.removeprefix("www.") or url
 
 
+_BLOCK_TAGS = ["article", "li", "tr", "p", "div", "section", "td"]
+_PLZ_ORT = re.compile(r"\b(\d{5})\s+([A-ZÄÖÜ][\wäöüß\-]+(?:[ \-][A-ZÄÖÜ][\wäöüß\-]+)?)(?![\wäöüß])")
+
+
+def parse_text_blocks(html: str, page_url: str, today: date | None = None) -> list[dict]:
+    """Allgemeiner Leser für Seiten ohne maschinenlesbare Termine (z.B. Anzeigenblätter, Vereinsseiten).
+
+    Sucht kleine Textblöcke, die ein Veranstaltungswort (Flohmarkt, Haushaltsauflösung, …) und ein
+    ausdrückliches Datum enthalten.
+    """
+    from ..classify import _EVENT_WORDS
+    from ..dateparse import parse_event_date, parse_time_text
+
+    today = today or date.today()
+    soup = BeautifulSoup(html, "html.parser")
+    for t in soup(["script", "style", "noscript", "nav", "header", "footer", "form", "svg"]):
+        t.decompose()
+    blocks = []
+    for el in soup.find_all(_BLOCK_TAGS):
+        text = _clean(el.get_text(" "))
+        if not (25 <= len(text) <= 900) or not _EVENT_WORDS.search(text):
+            continue
+        # Nur den kleinsten Block nehmen: enthält ein Kind-Block fast denselben Text, ist das Kind besser
+        inner = [c for c in el.find_all(_BLOCK_TAGS) if len(_clean(c.get_text(" "))) >= 0.8 * len(text)]
+        if inner:
+            continue
+        # Behälter mit mehreren Anzeigen (z.B. ganze Rubrik) überspringen – die Anzeigen einzeln nehmen
+        if sum(1 for c in el.find_all(_BLOCK_TAGS) if _EVENT_WORDS.search(c.get_text(" "))) >= 2:
+            continue
+        blocks.append((el, text))
+
+    out, seen = [], set()
+    for el, text in blocks:
+        parsed = parse_event_date(text, today)
+        if not parsed or not parsed.certain:
+            continue
+        if parsed.end < today - timedelta(days=1) or parsed.start > today + timedelta(days=120):
+            continue
+        head = el.find(["h1", "h2", "h3", "h4", "strong", "b"])
+        title = _clean(head.get_text(" ")) if head else ""
+        if len(title) < 5:
+            title = re.split(r"(?<=[.!?:])\s|\s[–|-]\s", text, maxsplit=1)[0]
+        title = title[:120]
+        m = _PLZ_ORT.search(text)
+        address = f"{m.group(1)} {m.group(2)}" if m else ""
+        link = el.find("a", href=True)
+        url = urljoin(page_url, link["href"]) if link else page_url
+        uid = hashlib.sha1(f"{title}|{parsed.start}".encode()).hexdigest()[:16]
+        if uid in seen:
+            continue
+        seen.add(uid)
+        out.append({
+            "ext_id": uid, "title": title, "description": text[:1500], "url": url, "image": "",
+            "start": parsed.start, "end": parsed.end, "time_text": parse_time_text(text) or "",
+            "location": address, "address": address, "lat": None, "lon": None,
+        })
+    return out
+
+
 def scrape_url(client: httpx.Client, url: str) -> list[dict]:
     text = fetch(client, url)
     if "BEGIN:VCALENDAR" in text[:2000]:
         return parse_ics(text, url)
-    return parse_html(text, url)
+    # Erst maschinenlesbare Termine (schema.org), sonst Textblöcke mit Datum
+    return parse_html(text, url) or parse_text_blocks(text, url)

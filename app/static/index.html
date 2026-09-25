@@ -208,9 +208,22 @@
       <div class="copy-row"><input id="icsUrl" type="text" readonly><button class="btn ghost" type="button" id="copyIcs">Kopieren</button></div>
     </fieldset>
 
+    <fieldset class="static-only">
+      <legend>Quellen</legend>
+      <div id="sourceList" class="source-list"></div>
+      <label class="field"><span class="field-label">Weitere Webseite als Quelle</span>
+        <input id="newSource" type="url" inputmode="url" placeholder="https://www.kieler-express.de/…"></label>
+      <button class="btn primary" type="button" id="addSource">Quelle hinzufügen</button>
+      <p class="hint">Zum Beispiel ein Anzeigenblatt, die Kirchengemeinde oder ein Verein. Gelesen werden nur Flohmärkte,
+        Trödel- und Kindermärkte und Haushaltsauflösungen mit Datum, und nur im eingestellten Umkreis.
+        Beim Tippen auf „Quelle hinzufügen“ öffnet sich GitHub: dort mit dem Konto anmelden, das die Seite betreut, und
+        auf „Submit new issue“ tippen. Nach etwa 10 Minuten sind die Termine da.</p>
+      <p class="form-error" id="sourceError" hidden></p>
+    </fieldset>
+
     <fieldset>
-      <legend>Zustand der Quellen</legend>
-      <div id="sourceStatus" class="source-status"></div>
+      <legend>Pflege</legend>
+      <div id="sourceStatus" class="source-status server-only"></div>
       <button class="btn ghost" type="button" id="restoreHidden">Alle ausgeblendeten Termine wiederherstellen</button>
     </fieldset>
 

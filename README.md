@@ -65,6 +65,23 @@ Ob die letzte Suche geklappt hat, steht in der Seite unter Einstellungen → „
 > Hinweis: Der Zeitplan (alle 3 Stunden) läuft bei GitHub nur auf dem **Standard-Branch** des Repositories.
 > Die Webseite funktioniert genauso mit GitHub Pages oder jedem anderen Webspace: einfach den Inhalt des Branches `live` ausliefern.
 
+### Eigene Quellen hinzufügen (z.B. Kieler Express, Kirchengemeinde)
+
+In der Seite oder App: **Einstellungen → Quellen → Webadresse eintragen → „Quelle hinzufügen“**.
+Es öffnet sich GitHub mit einer vorbereiteten Nachricht (Issue); mit dem Konto `anonym239` angemeldet einfach auf
+**„Submit new issue“** tippen. Der Workflow „Quelle hinzufügen/entfernen“ trägt die Adresse in `config.json` ein und
+startet sofort einen Suchlauf. Entfernen geht genauso über „Entfernen“ neben der Quelle.
+
+Gelesen werden Seiten mit maschinenlesbaren Terminen (schema.org, iCal) und – falls es die nicht gibt – Textblöcke,
+die „Flohmarkt“, „Haushaltsauflösung“ o.ä. und ein Datum enthalten. Es gilt immer der eingestellte Umkreis.
+Seiten, die automatische Abrufe sperren (z.B. kn-online.de der Kieler Nachrichten), lassen sich nicht einbinden.
+
+### Android-App
+
+Download: https://github.com/anonym239/Kleinanzeigen/releases/latest/download/Flohmarkt-Finder.apk (ab Android 8).
+Die App zeigt die veröffentlichte Webseite aus dem Branch `live` – jede Änderung an der Seite ist also automatisch
+auch in der App. Ohne Netz zeigt sie den zuletzt geladenen Stand.
+
 ## Variante 2: Auf dem eigenen Homeserver
 
 ### Mit Docker

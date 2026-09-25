@@ -68,6 +68,20 @@ def apply_config(cfg: dict) -> dict:
     return db.save_settings(values)
 
 
+def source_list(settings: dict) -> list[dict]:
+    """Alle Quellen für die Anzeige in den Einstellungen (fest eingebaute + selbst hinzugefügte)."""
+    from .sources.events_page import source_name
+    items = [
+        {"name": "Kleinanzeigen", "url": "https://www.kleinanzeigen.de", "builtin": True,
+         "active": bool(settings.get("kleinanzeigen_enabled"))},
+        {"name": "Flohmarkt-Kalender", "url": "https://krencky24.de", "builtin": True,
+         "active": bool(settings.get("calendars_enabled", True))},
+    ]
+    for url in settings.get("extra_urls") or []:
+        items.append({"name": source_name(url), "url": url, "builtin": False, "active": True})
+    return items
+
+
 def export(out: Path, settings: dict) -> int:
     out.mkdir(parents=True, exist_ok=True)
     root_files = ("index.html", "sw.js", "manifest.webmanifest", "icon.svg")
@@ -89,12 +103,11 @@ def export(out: Path, settings: dict) -> int:
     home = (settings.get("home_lat"), settings.get("home_lon"))
     radius = float(settings.get("radius_km") or 50)
     for e in db.list_events():
-        # Nur Termine im Umkreis veröffentlichen (ohne Koordinaten: nur Kleinanzeigen, die ja schon im Umkreis gesucht wurden)
+        # Nur Termine im Umkreis veröffentlichen. Ohne Koordinaten bleiben sie drin: Sie stammen aus Quellen,
+        # die schon regional sind (Kleinanzeigen-Umkreissuche, selbst eingetragene regionale Webseiten).
         if home[0] is not None and e.get("lat") is not None:
             if geo.haversine_km(home[0], home[1], e["lat"], e["lon"]) > radius + 5:
                 continue
-        elif e.get("source") != "kleinanzeigen":
-            continue
         item = {k: e.get(k) for k in keep}
         item["description"] = (item["description"] or "")[:1500]
         item["date_certain"] = bool(item["date_certain"])
@@ -106,6 +119,7 @@ def export(out: Path, settings: dict) -> int:
                                                   "days_ahead")},
         "categories": CATEGORY_LABELS,
         "runs": db.last_runs(),
+        "sources": source_list(settings),
         "events": events,
     }
     (out / "data").mkdir(exist_ok=True)

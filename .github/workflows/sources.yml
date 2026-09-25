@@ -1,0 +1,51 @@
+name: Quelle hinzufügen/entfernen
+# Ausgelöst durch "Quelle hinzufügen" in der Seite/App (legt ein Issue an).
+# Nur Issues des Repository-Inhabers werden verarbeitet.
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: write   # config.json ändern
+  issues: write     # Antwort schreiben, Issue schließen
+  actions: write    # Suchlauf sofort starten
+
+jobs:
+  source:
+    if: startsWith(github.event.issue.title, 'Quelle') && github.event.issue.user.login == github.repository_owner
+    runs-on: ubuntu-latest
+    env:
+      TITLE: ${{ github.event.issue.title }}
+      BODY: ${{ github.event.issue.body }}
+      ISSUE: ${{ github.event.issue.number }}
+      BRANCH: ${{ github.event.repository.default_branch }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: "${{ github.event.repository.default_branch }}" }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: config.json anpassen
+        id: apply
+        run: |
+          set +e
+          python tools/manage_sources.py --config config.json --title "$TITLE" --body "$BODY" > "$RUNNER_TEMP/msg.txt"
+          code=$?
+          set -e
+          cat "$RUNNER_TEMP/msg.txt"
+          echo "changed=$([ $code -eq 0 ] && echo yes || echo no)" >> "$GITHUB_OUTPUT"
+      - name: Speichern und Suchlauf starten
+        if: steps.apply.outputs.changed == 'yes'
+        run: |
+          git config user.name "flohmarkt-bot"
+          git config user.email "flohmarkt-bot@users.noreply.github.com"
+          git add config.json
+          git commit -q -m "Quellen geändert (Issue #$ISSUE)"
+          git push origin "HEAD:$BRANCH"
+          gh workflow run site.yml --ref "$BRANCH"
+      - name: Antwort im Issue
+        if: always()
+        run: |
+          printf '%s\n\n---\n_Automatisch vom Flohmarkt-Finder_\n' "$(cat "$RUNNER_TEMP/msg.txt" 2>/dev/null || echo 'Fehler beim Verarbeiten.')" > "$RUNNER_TEMP/reply.md"
+          gh issue comment "$ISSUE" --body-file "$RUNNER_TEMP/reply.md"
+          gh issue close "$ISSUE"

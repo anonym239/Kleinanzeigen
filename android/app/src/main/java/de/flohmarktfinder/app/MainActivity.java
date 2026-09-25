@@ -18,6 +18,16 @@ import android.widget.Toast;
 
 import androidx.webkit.WebViewAssetLoader;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+
 /**
  * Flohmarkt-Finder als Android-App.
  *
@@ -28,6 +38,9 @@ import androidx.webkit.WebViewAssetLoader;
 public class MainActivity extends Activity {
     private static final String HOST = "appassets.androidplatform.net";
     private static final String START_URL = "https://" + HOST + "/assets/www/index.html";
+    /** Veröffentlichte Webseite (Branch "live") – die App zeigt immer genau diesen Stand. */
+    private static final String LIVE_BASE = "https://raw.githubusercontent.com/anonym239/Kleinanzeigen/live/";
+    private static final String LIVE_URL = "https://" + HOST + "/live/index.html";
     private WebView webView;
     private String remoteUrl = "";   // Webseite (z.B. Netlify); leer = eingebaute Oberfläche
     private String remoteHost = "";
@@ -42,6 +55,7 @@ public class MainActivity extends Activity {
         final WebViewAssetLoader loader = new WebViewAssetLoader.Builder()
                 .setDomain(HOST)
                 .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
+                .addPathHandler("/live/", new LiveHandler())
                 .build();
 
         remoteUrl = getString(R.string.app_url).trim();
@@ -89,8 +103,79 @@ public class MainActivity extends Activity {
         if (savedInstanceState != null) {
             webView.restoreState(savedInstanceState);
         } else {
-            webView.loadUrl(remoteUrl.isEmpty() ? START_URL : remoteUrl);
+            webView.loadUrl(remoteUrl.isEmpty() ? LIVE_URL : remoteUrl);
         }
+    }
+
+    /**
+     * Liefert die Dateien der Webseite aus dem GitHub-Branch "live" (gleicher Stand wie Netlify).
+     * Jede geladene Datei wird zwischengespeichert; ohne Netz kommt die letzte Kopie,
+     * beim allerersten Start ohne Netz die in der App eingebaute Oberfläche.
+     */
+    private class LiveHandler implements WebViewAssetLoader.PathHandler {
+        @Override
+        public WebResourceResponse handle(String path) {
+            if (path.isEmpty() || path.endsWith("/")) path += "index.html";
+            if (path.contains("..")) return null;
+            String mime = mimeFor(path);
+            File cached = new File(getCacheDir(), "live/" + path);
+            byte[] data = download(LIVE_BASE + path);
+            if (data != null) {
+                try {
+                    File parent = cached.getParentFile();
+                    if (parent != null) parent.mkdirs();
+                    try (FileOutputStream out = new FileOutputStream(cached)) { out.write(data); }
+                } catch (IOException ignored) { }
+                return response(mime, new ByteArrayInputStream(data));
+            }
+            try {
+                if (cached.isFile()) return response(mime, new FileInputStream(cached));
+                return response(mime, getAssets().open("www/" + path)); // eingebaute Oberfläche
+            } catch (IOException e) {
+                return null;
+            }
+        }
+    }
+
+    private static WebResourceResponse response(String mime, InputStream in) {
+        WebResourceResponse r = new WebResourceResponse(mime, "utf-8", in);
+        java.util.Map<String, String> h = new java.util.HashMap<>();
+        h.put("Cache-Control", "no-cache");
+        r.setResponseHeaders(h);
+        return r;
+    }
+
+    private static byte[] download(String url) {
+        HttpURLConnection c = null;
+        try {
+            c = (HttpURLConnection) new URL(url).openConnection();
+            c.setConnectTimeout(8000);
+            c.setReadTimeout(15000);
+            c.setUseCaches(false);
+            if (c.getResponseCode() != 200) return null;
+            try (InputStream in = c.getInputStream(); ByteArrayOutputStream buf = new ByteArrayOutputStream()) {
+                byte[] b = new byte[16384];
+                int n;
+                while ((n = in.read(b)) > 0) buf.write(b, 0, n);
+                return buf.toByteArray();
+            }
+        } catch (IOException e) {
+            return null;
+        } finally {
+            if (c != null) c.disconnect();
+        }
+    }
+
+    private static String mimeFor(String path) {
+        String p = path.toLowerCase();
+        if (p.endsWith(".html")) return "text/html";
+        if (p.endsWith(".js")) return "application/javascript";
+        if (p.endsWith(".css")) return "text/css";
+        if (p.endsWith(".json")) return "application/json";
+        if (p.endsWith(".svg")) return "image/svg+xml";
+        if (p.endsWith(".png")) return "image/png";
+        if (p.endsWith(".webmanifest")) return "application/manifest+json";
+        return "application/octet-stream";
     }
 
     private void openExternal(Uri uri) {
