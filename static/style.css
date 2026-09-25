@@ -365,3 +365,4 @@ html.static-mode .server-only, html:not(.static-mode) .static-only { display: no
 }
 html.in-app .web-only { display: none !important; }
 .err-detail { margin-top: 12px; font-size: .8rem; overflow-wrap: anywhere; }
+.brand-logo { width: 2.1em; height: 2.1em; flex: none; display: block; }
