@@ -141,6 +141,7 @@ async function loadStaticData(force = false) {
         const r = await fetch(`${src}?t=${Date.now()}`, { cache: "no-store" });
         if (!r.ok) { problems.push(`${new URL(src, location.href).host}: HTTP ${r.status}`); continue; }
         L$.data = await r.json();
+        L$.at = Date.now();
         return L$.data;
       } catch (e) {
         problems.push(`${new URL(src, location.href).host}: ${e.message}`);
@@ -1245,7 +1246,23 @@ async function submitAdd(e) {
 }
 
 /* ---------- Laden ---------- */
+/* Neue Version der Oberfläche veröffentlicht? Dann einmal neu laden (z.B. wenn die App lange im Hintergrund offen war) */
+function reloadIfOutdated() {
+  const live = L$.data?.build, mine = window.FLOHMARKT_BUILD;
+  if (!STATIC || !live || !mine || live === mine) return false;
+  let tried = "";
+  try { tried = sessionStorage.getItem("reloadedFor") || ""; } catch { /* egal */ }
+  if (tried === live) return false; // nur einmal pro Version versuchen (Zwischenspeicher der Server)
+  try { sessionStorage.setItem("reloadedFor", live); } catch { /* egal */ }
+  location.reload();
+  return true;
+}
+
 async function loadEvents() {
+  if (STATIC) {
+    if (Date.now() - (L$.at || 0) > 10000) await loadStaticData(true).catch(() => {}); // beim Start nicht doppelt laden
+    if (reloadIfOutdated()) return;
+  }
   const data = await api("/api/events");
   S.events = data.events; S.categories = data.categories; S.today = data.today;
   syncFavSnaps();
