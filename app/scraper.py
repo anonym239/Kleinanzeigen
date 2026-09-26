@@ -19,8 +19,33 @@ _run_lock = threading.Lock()
 state = {"running": False, "started": None, "message": "", "last_finished": None}
 
 
-def _geocode_event(ev: dict) -> None:
-    """Koordinaten ergänzen: genaue Adresse, sonst Ort, sonst nur die Postleitzahl."""
+# Wörter im Titel, die sicher kein Ort sind (für die Ortssuche im Titel)
+_NOT_PLACE = set("""flohmarkt flohmärkte trödelmarkt antikmarkt basar kinderbasar hofflohmarkt garagenflohmarkt
+straßenflohmarkt strassenflohmarkt dorfflohmarkt nachtflohmarkt hallenflohmarkt kinderflohmarkt sammlermarkt
+herbstmarkt herbstflohmarkt frühjahrsflohmarkt sommerflohmarkt markt großer grosser große grosse kleiner neuer
+haushaltsauflösung wohnungsauflösung nachlass samstag sonntag montag freitag heute morgen januar februar märz april
+juni juli august september oktober november dezember shopping center parkplatz gelände halle schule kita
+kindergarten kirche gemeinde verein ikea famila marktkauf real kaufland edeka rewe hagebau obi toom globus""".split())
+_CITY_PREFIX = {"hh": "Hamburg", "hl": "Lübeck", "ki": "Kiel", "nms": "Neumünster"}
+
+
+def _place_candidates(title: str) -> list[str]:
+    """Mögliche Ortsnamen aus dem Titel, z.B. "Flohmarkt in Braunschweig" -> Braunschweig, "HH-Bergedorf"."""
+    out = []
+    for m in re.finditer(r"\b(?:in|bei|nahe)\s+([A-ZÄÖÜ][\wäöüß-]{2,}(?:\s[A-ZÄÖÜ][\wäöüß-]+)?)", title or ""):
+        out.append(m.group(1))
+    words = re.findall(r"[A-ZÄÖÜ][\wäöüß]*(?:-[A-ZÄÖÜ][\wäöüß]+)*", title or "")
+    for w in reversed(words):  # Orte stehen oft am Ende ("… Lübeck Flohmarkt")
+        pre, _, rest = w.partition("-")
+        if pre.lower() in _CITY_PREFIX and rest:
+            w = f"{_CITY_PREFIX[pre.lower()]}-{rest}"
+        if len(w) >= 4 and w.lower() not in _NOT_PLACE and w not in out:
+            out.append(w)
+    return out[:3]
+
+
+def _geocode_event(ev: dict, settings: dict | None = None) -> None:
+    """Koordinaten ergänzen: genaue Adresse, Postleitzahl, Ort (letzter Teil der Adresse), zuletzt Ort im Titel."""
     if ev.get("lat") is not None:
         return
     queries = [ev.get("address")]
@@ -28,13 +53,31 @@ def _geocode_event(ev: dict) -> None:
         m = re.search(r"\b(\d{5})\b", text or "")
         if m:
             queries.append(m.group(1))
+    for text in (ev.get("address"), ev.get("location")):  # "Schützenplatz, Hamburger Straße 63, Braunschweig" -> Braunschweig
+        parts = [p.strip() for p in re.split(r"[,;]", text or "") if p.strip()]
+        if len(parts) > 1:
+            queries.append(re.sub(r"^\d{5}\s*", "", parts[-1]))
     queries.append(ev.get("location"))  # reiner Ortsname zuletzt ("Marktplatz" gibt es überall)
-    for q in queries:
-        if q:
-            res = geo.geocode(q)
-            if res:
-                ev["lat"], ev["lon"] = res[0], res[1]
-                return
+    for q in dict.fromkeys(q for q in queries if q):
+        res = geo.geocode(q)
+        if res:
+            ev["lat"], ev["lon"] = res[0], res[1]
+            return
+    # Nichts in der Adresse: Ortsnamen im Titel versuchen – nur übernehmen, wenn er im Suchgebiet liegt
+    # (sonst könnte "IKEA" oder ein Firmenname irgendwo in Deutschland landen)
+    home = settings and (settings.get("home_lat"), settings.get("home_lon"))
+    if not home or home[0] is None:
+        return
+    radius = float(settings.get("radius_km") or 50)
+    for q in _place_candidates(ev.get("title", "")):
+        res = geo.geocode(q)
+        first = (res[2].split(",")[0].strip().lower() if res else "")
+        is_place = bool(first) and (first in q.lower() or q.lower() in first)  # Treffer heißt wirklich so
+        if res and is_place and geo.haversine_km(*home, res[0], res[1]) <= radius + 5:
+            ev["lat"], ev["lon"] = res[0], res[1]
+            if not ev.get("location"):
+                ev["location"] = q
+            return
 
 
 def _kleinanzeigen_event(ad: dict) -> dict:
@@ -144,7 +187,7 @@ def _store_web_item(it: dict, source: str, ev_id: str, settings: dict) -> tuple[
         rough = geo.geocode(m.group(1))
         if rough and geo.haversine_km(*home, rough[0], rough[1]) > radius + 10:
             return 0, 0
-    _geocode_event(ev)
+    _geocode_event(ev, settings)
     if home[0] is not None and ev["lat"] is not None and geo.haversine_km(*home, ev["lat"], ev["lon"]) > radius + 5:
         return 0, 0
     return 1, int(db.upsert_event(ev))
@@ -294,7 +337,7 @@ def run_all() -> bool:
             try:
                 st = ai_review.review_new_events(settings)
                 for ev in db.events_without_coords():  # korrigierte Adressen neu verorten
-                    _geocode_event(ev)
+                    _geocode_event(ev, settings)
                     if ev.get("lat") is not None:
                         db.update_event_fields(ev["id"], {"lat": ev["lat"], "lon": ev["lon"]})
                 msg = f"{st['checked']} geprüft, {st['rejected']} aussortiert, {st['corrected']} Angaben korrigiert"

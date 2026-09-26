@@ -129,3 +129,11 @@ def test_drop_unseen_calendar_events(monkeypatch):
         c.execute("UPDATE events SET last_seen = ? WHERE id IN ('cal:a', 'ka:x')", (_t.time() - 8 * 3600,))
     assert db.drop_unseen(["krencky24.de"], _t.time() - scraper.STALE_AFTER) == 1
     assert sorted(e["id"] for e in db.list_events()) == ["cal:b", "ka:x"]
+
+
+def test_place_candidates_from_title():
+    from app.scraper import _place_candidates
+    assert _place_candidates("Flohmarkt in Braunschweig")[0] == "Braunschweig"
+    assert "Hamburg-Bergedorf" in _place_candidates("Körber eh. Hauni HH-Bergedorf")
+    assert "Lübeck" in _place_candidates("IKEA und LUV Shopping Lübeck Flohmarkt")
+    assert "Flohmarkt" not in _place_candidates("Großer Flohmarkt Samstag")

@@ -58,6 +58,8 @@ class PageEvent(BaseModel):
     end_date: Optional[str] = None
     time_text: Optional[str] = None
     address: Optional[str] = Field(None, description="Straße, PLZ Ort, falls angegeben")
+    town: Optional[str] = Field(None, description="Ort/Stadt(teil) des Termins, z.B. 'Lübeck' oder 'Hamburg-Bergedorf' – "
+                                                  "auch wenn er nur im Titel, in einer Überschrift oder im Seitenkopf steht")
     description: Optional[str] = None
     url: Optional[str] = Field(None, description="Link zum Termin, falls auf der Seite vorhanden")
 
@@ -81,6 +83,7 @@ EXTRACT_SYSTEM = """Du liest Termine aus dem Text einer Webseite für eine Flohm
 Gib nur Termine zurück, die ab dem Bezugsdatum stattfinden: Flohmärkte, Hof-/Garagenflohmärkte, Haushaltsauflösungen mit
 Verkauf vor Ort, Trödel-/Antikmärkte, Kinderflohmärkte, Basare. Keine Nachrichten, keine Werbung, keine vergangenen Termine.
 Kategorien: "dorf" = Dorf-Flohmarkt, "strasse" = Straßen-Flohmarkt, "hof", "haushalt", "kinder", "antik", "flohmarkt".
+Gib zu jedem Termin den Ort an (Feld town), notfalls aus Titel, Überschrift oder Seitenkopf – nur wenn er erkennbar ist.
 Datum immer als YYYY-MM-DD (fehlt das Jahr, das nächste passende ab dem Bezugsdatum). Erfinde nichts."""
 
 
@@ -251,7 +254,7 @@ def extract_events_from_page(settings: dict, url: str, html: str) -> list[dict] 
     if len(text) > MAX_PAGE_CHARS:
         log.info("Seite %s ist sehr lang (%d Zeichen) – Claude liest die ersten %d", url, len(text), MAX_PAGE_CHARS)
         text = text[:MAX_PAGE_CHARS]
-    digest = hashlib.sha256(f"{date.today().isoformat()[:7]}|{text}".encode()).hexdigest()
+    digest = hashlib.sha256(f"v2|{date.today().isoformat()[:7]}|{text}".encode()).hexdigest()  # v2: mit Ort (town)
     cached = db.ai_page_get(url, digest)
     if cached is not None:
         return cached
@@ -270,7 +273,10 @@ def extract_events_from_page(settings: dict, url: str, html: str) -> list[dict] 
             "ext_id": uid, "title": ev.title[:150], "description": (ev.description or "")[:1500],
             "url": ev.url if (ev.url or "").startswith("http") else url, "image": "",
             "start": start, "end": end if end >= start else start, "time_text": ev.time_text or "",
-            "location": ev.address or "", "address": ev.address or "", "lat": None, "lon": None,
+            "location": ev.address or ev.town or "",
+            "address": ev.address if ev.address and (not ev.town or ev.town.lower() in ev.address.lower())
+            else ", ".join(x for x in (ev.address, ev.town) if x),
+            "lat": None, "lon": None,
             "category_hint": ev.category,
         })
     db.ai_page_put(url, digest, items)
