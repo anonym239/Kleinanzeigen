@@ -10,15 +10,9 @@ jobs:
     steps:
       - name: Mögliche Quellen prüfen
         run: |
+          set +e
           UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36"
           for u in \
-            "https://www.ln-online.de/arc/outboundfeeds/rss/" \
-            "https://www.ln-online.de/arc/outboundfeeds/rss/category/lokales/" \
-            "https://www.shz.de/rss" \
-            "https://www.shz.de/lokales/rss" \
-            "https://www.marktcom.de/flohmarkt/schleswig-holstein" \
-            "https://www.marktcom.de/" \
-            "https://www.flohmarkt.de/" \
             "https://www.troedelmarkt-flohmarkt.de/" \
             "https://www.flohmarkt-termine.net/" \
             "https://www.kiel.de/de/kultur_freizeit/veranstaltungen/index.php" \
@@ -43,4 +37,20 @@ jobs:
             items=$(echo "$body" | grep -o "<item>" | wc -l)
             echo "$u -> $code | bytes=$(echo "$body" | wc -c) floh=$fm daten=$dates rss_items=$items"
             echo "$body" | grep -oiE "<title>[^<]{0,120}" | grep -i "floh\|trödel\|basar" | head -3
+          done
+      - name: marktcom.de Aufbau
+        run: |
+          set +e
+          UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36"
+          curl -sSL -m 25 -A "$UA" "https://www.marktcom.de/" > m.html
+          grep -oE 'href="[^"]+"' m.html | sort -u | grep -iE "schleswig|holstein|kiel|plz|termin|suche|region|bundesland|flohm" | head -60
+          grep -oE '<form[^>]*>' m.html | head; grep -oE '<input[^>]*name="[^"]+"' m.html | head -20
+          echo ----; grep -o 'application/ld+json' m.html | wc -l
+          echo ---- Ausschnitt; sed 's/<[^>]*>/ /g' m.html | tr -s ' \n' | grep -iE "flohmarkt" | head -20
+      - name: sh:z und LN Titel mit Floh
+        run: |
+          set +e
+          for u in "https://www.shz.de/rss" "https://www.ln-online.de/arc/outboundfeeds/rss/" "https://www.ln-online.de/arc/outboundfeeds/rss/category/lokales/luebeck/" "https://www.ln-online.de/arc/outboundfeeds/rss/category/lokales/ostholstein/" "https://www.ln-online.de/arc/outboundfeeds/rss/category/lokales/segeberg/"; do
+            echo "== $u"; curl -sSL -m 25 "$u" | grep -oE "<title>[^<]{0,150}" | head -4
+            curl -sSL -m 25 "$u" | grep -c "<item>"
           done
