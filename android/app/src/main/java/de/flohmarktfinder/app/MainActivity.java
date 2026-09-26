@@ -129,6 +129,7 @@ public class MainActivity extends Activity {
 
         setContentView(webView);
         Reminder.schedule(this); // Freitags-Erinnerung (falls eingeschaltet)
+        Updater.checkInBackground(this, false); // neue App-Version? Dann fragen und direkt installieren
         if (savedInstanceState != null) {
             webView.restoreState(savedInstanceState);
         } else {
@@ -249,6 +250,7 @@ public class MainActivity extends Activity {
             webView.reload();
         }
         pausedAt = 0;
+        Updater.resumePending(this); // zurück aus "Installieren erlauben"
     }
 
     @Override
@@ -355,6 +357,18 @@ public class MainActivity extends Activity {
             } catch (org.json.JSONException e) {
                 return "{}";
             }
+        }
+
+        /** Nach neuer App-Version suchen (Knopf in den Einstellungen). */
+        @JavascriptInterface
+        public void checkUpdate() {
+            runOnUiThread(() -> Updater.checkInBackground(MainActivity.this, true));
+        }
+
+        /** Neueste Version laden und den Installer öffnen. */
+        @JavascriptInterface
+        public void installUpdate() {
+            runOnUiThread(() -> Updater.downloadAndInstall(MainActivity.this, 0));
         }
 
         /** Kennzeichen für die Seite: diese App-Version kann den Standort freigeben. */

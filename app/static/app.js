@@ -371,11 +371,52 @@ function passesBase(ev, f, skipCats = false) {
   return true;
 }
 
+/* ---------- Doppelte Anzeigen zusammenfassen ----------
+   Derselbe Markt wird oft mehrfach inseriert ("Flohmarkt Jungfernstieg" / "FLOHMARKT JUNGFERNSTIEG").
+   Gleicher Tag, gleicher Ort und dieselben kennzeichnenden Wörter -> eine Karte mit "2 Anzeigen". */
+const normTitle = (t) => String(t || "").toLowerCase().replace(/\d{1,2}\.\d{1,2}\.(\d{2,4})?/g, " ")
+  .replace(/[^a-zäöüß0-9]+/g, " ").trim();
+function dupeWords(ev) {
+  if (!ev._dw) {
+    const place = marketWords(ev.location || ""); // Ortsnamen sagen nichts über den Markt
+    ev._dw = new Set([...marketWords(ev.title)].filter((w) => !place.has(w)));
+  }
+  return ev._dw;
+}
+function isDupe(a, b) {
+  if (!a.start_date || a.start_date !== b.start_date) return false;
+  if ((a.lat == null) !== (b.lat == null)) return false;
+  if (a.lat != null && haversine(a.lat, a.lon, b.lat, b.lon) > 1) return false;
+  if (normTitle(a.title) && normTitle(a.title) === normTitle(b.title)) return true;
+  const wa = dupeWords(a), wb = dupeWords(b);
+  if (!wa.size || !wb.size) return false;
+  const shared = [...wa].filter((w) => wb.has(w)).length;
+  return shared >= 1 && shared / Math.min(wa.size, wb.size) >= 0.5;
+}
+const dupeScore = (e) => (e.favorite ? 100 : 0) + (isTop(e) ? 10 : 0) + (e.time_text ? 4 : 0) + (e.image ? 2 : 0) +
+  (e.ai_checked ? 1 : 0) + Math.min(3, (e.description || "").length / 300);
+function groupDupes(list) {
+  const groups = [], byDay = new Map();
+  for (const ev of list) {
+    ev._dupes = null;
+    const same = byDay.get(ev.start_date) || [];
+    const g = ev.start_date ? same.find((grp) => grp.some((m) => isDupe(m, ev))) : null;
+    if (g) g.push(ev);
+    else { const ng = [ev]; groups.push(ng); same.push(ng); byDay.set(ev.start_date, same); }
+  }
+  return groups.map((g) => {
+    if (g.length === 1) return g[0];
+    const rep = [...g].sort((a, b) => dupeScore(b) - dupeScore(a))[0];
+    rep._dupes = g.filter((e) => e !== rep);
+    return rep;
+  });
+}
+
 function filtered() {
   const f = S.filters;
   const list = S.view === "fav"
     ? S.events.filter((ev) => ev.favorite && !ev.hidden && !isPast(ev))
-    : S.events.filter((ev) => passesBase(ev, f));
+    : groupDupes(S.events.filter((ev) => passesBase(ev, f)));
   const byNew = (a, b) => b.first_seen - a.first_seen;
   if (f.sort === "distance") list.sort((a, b) => (a.distance_km ?? 9999) - (b.distance_km ?? 9999));
   else if (f.sort === "new") list.sort(byNew);
@@ -431,6 +472,7 @@ function cardHTML(ev) {
     `<span class="pill cat">${catIcon(k, "sm")}${esc(ev.category_label)}</span>`,
     isNew(ev) ? `<span class="pill new">NEU</span>` : "",
     memoryPills(ev),
+    ev._dupes?.length ? `<span class="pill dup">${ev._dupes.length + 1} Anzeigen</span>` : "",
     ev.gone ? `<span class="pill warn">Anzeige nicht mehr online</span>` : "",
     ev.is_service ? `<span class="pill warn">Firma/Werbung</span>` : "",
     `<span class="pill src">${ev.source === "kleinanzeigen" ? "Privat · Kleinanzeigen" : ev.manual ? "Eigener Eintrag"
@@ -489,13 +531,13 @@ function groupedListHTML(list, overview) {
     html += `<nav class="day-overview" aria-label="Tage">` + days.map((d) => `
       <a class="day-tile" href="#tag-${d}">
         <span class="dt-day">${esc(parseISO(d).toLocaleDateString("de-DE", { weekday: "long" }))}</span>
-        <span class="dt-date">${esc(parseISO(d).toLocaleDateString("de-DE", { day: "numeric", month: "numeric" }))}</span>
+        <span class="dt-date">${esc(parseISO(d).toLocaleDateString("de-DE", { day: "numeric", month: "numeric" }))} ${wxHTML(d)}</span>
         <span class="dt-n"><strong>${groups.get(d).length}</strong> ${groups.get(d).length === 1 ? "Termin" : "Termine"}</span>
       </a>`).join("") + `</nav>`;
   }
   for (const [day, evs] of groups) {
     const head = day
-      ? `<span class="day-tag">${esc(fmtDay(day))}</span><span class="day-rel">${relDay(day)}</span>`
+      ? `<span class="day-tag">${esc(fmtDay(day))}</span><span class="day-rel">${relDay(day)}</span>${wxHTML(day)}`
       : `<span class="day-tag muted">Ohne erkanntes Datum</span><span class="day-rel">Datum steht evtl. im Text</span>`;
     html += `<div class="day-head" id="tag-${day || "ohne-datum"}">${head}<span class="day-count">${evs.length}</span></div>` + evs.map(cardHTML).join("");
   }
@@ -527,7 +569,7 @@ function syncControls() {
     days: `Nächste ${S.settings.days_ahead || 14} Tage`, all: "Alle" };
   $$("#rangeBar button").forEach((b) => {
     const r = b.dataset.range;
-    const n = S.events.filter((ev) => ev.start_date && passesBase(ev, { ...f, range: r, undated: false })).length;
+    const n = groupDupes(S.events.filter((ev) => ev.start_date && passesBase(ev, { ...f, range: r, undated: false }))).length;
     b.setAttribute("aria-pressed", String(r === f.range));
     b.innerHTML = `${labels[r]} <span class="rn">${n}</span>`;
   });
@@ -644,6 +686,7 @@ function openDetail(id) {
     </div>
     <dl class="detail-meta">
       <dt>Wann</dt><dd>${dateLine(ev)}${ev.start_date ? ` <span class="hint">(${relDay(ev.start_date)})</span>` : ""}</dd>
+      ${ev.start_date && wxFor(ev.start_date < S.today ? S.today : ev.start_date) ? `<dt>Wetter</dt><dd>${wxHTML(ev.start_date < S.today ? S.today : ev.start_date, true)}</dd>` : ""}
       <dt>Wo</dt><dd>${placeLine(ev)}</dd>
       ${ev.price ? `<dt>Preis</dt><dd>${esc(ev.price)}</dd>` : ""}
       <dt>Quelle</dt><dd>${esc(sourceLabel(ev.source))}${ev.posted_at ? `, eingestellt ${esc(parseISO(ev.posted_at).toLocaleDateString("de-DE"))}` : ""}</dd>
@@ -651,6 +694,10 @@ function openDetail(id) {
     ${ev.ai_checked ? `<p class="hint ai-ok">✓ Von Claude geprüft${ev.ai_note ? `: ${esc(ev.ai_note)}` : ""}</p>`
       : !ev.date_certain && ev.start_date ? `<p class="hint">Das Datum wurde aus einem Wochentag im Text abgeleitet. Bitte in der Anzeige prüfen.</p>` : ""}
     ${ev.description ? `<p class="detail-desc">${esc(ev.description)}</p>` : ""}
+    ${ev._dupes?.length ? `<div class="dupes"><strong>Auch so angeboten (${ev._dupes.length})</strong>
+      ${ev._dupes.map((d) => `<div class="dupe-row"><span>${esc(d.title)}<small>${esc(sourceLabel(d.source))}${d.time_text ? ` · ${esc(d.time_text)}` : ""}</small></span>
+        ${d.url ? `<a class="link-btn" href="${esc(d.url)}" target="_blank" rel="noopener">Anzeige</a>` : ""}
+        <button class="link-btn" type="button" data-dupe="${esc(d.id)}">Details</button></div>`).join("")}</div>` : ""}
     <div class="detail-actions">
       <button class="btn ${ev.favorite ? "primary" : "ghost"}" type="button" data-dact="fav">${icon("star")} ${ev.favorite ? "Gemerkt" : "Merken"}</button>
       ${ev.url ? `<a class="btn ghost" href="${esc(ev.url)}" target="_blank" rel="noopener">${icon("ext")} Anzeige öffnen</a>` : ""}
@@ -941,8 +988,8 @@ function tourStops(day) {
 }
 
 /* Kürzeste Reihenfolge (bis 8 Stopps exakt, sonst "immer zum nächsten") */
-function bestOrder(stops, home, back) {
-  const d = (a, b) => haversine(a.lat, a.lon, b.lat, b.lon);
+function bestOrder(stops, home, back, dist) {
+  const d = dist || ((a, b) => haversine(a.lat, a.lon, b.lat, b.lon));
   const cost = (order) => {
     let c = 0, prev = home;
     for (const s of order) { if (prev) c += d(prev, s); prev = s; }
@@ -967,14 +1014,98 @@ function bestOrder(stops, home, back) {
   return { order, km: cost(order) };
 }
 
+/* ---------- Echte Fahrzeiten (OpenStreetMap-Routenplaner, kostenlos, ohne Key) ---------- */
+const OSRM = "https://routing.openstreetmap.de/routed-car";
+const driveCache = new Map();
+const fmtDur = (min) => (min < 60 ? `${Math.max(1, Math.round(min))} Min` : `${Math.floor(min / 60)} Std ${Math.round(min % 60)} Min`.replace(" 0 Min", ""));
+const fmtKm = (km) => `${km < 10 ? km.toFixed(1).replace(".", ",") : Math.round(km)} km`;
+
+async function osrm(service, pts, extra) {
+  const coords = pts.map((p) => `${(+p.lon).toFixed(5)},${(+p.lat).toFixed(5)}`).join(";");
+  const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 12000);
+  try {
+    const r = await fetch(`${OSRM}/${service}/v1/driving/${coords}?${extra}`, { signal: ctl.signal });
+    const j = await r.json();
+    return j.code === "Ok" ? j : null;
+  } catch { return null; } finally { clearTimeout(t); }
+}
+
+/* Beste Reihenfolge nach echter Fahrzeit + Fahrzeit/Strecke je Abschnitt. null = Dienst nicht erreichbar */
+async function planDrive(stops, home, back) {
+  if (!stops.length || stops.length > 30) return null;
+  const key = JSON.stringify([home && [home.lat, home.lon], stops.map((e) => e.id), back]);
+  if (driveCache.has(key)) return driveCache.get(key);
+  const pts = home ? [home, ...stops] : stops;
+  const table = await osrm("table", pts, "annotations=duration");
+  if (!table) return null;
+  const idx = new Map(pts.map((p, i) => [p, i]));
+  const { order } = bestOrder(stops, home, back && !!home, (a, b) => table.durations[idx.get(a)][idx.get(b)] ?? 1e9);
+  const path = [...(home ? [home] : []), ...order, ...(back && home ? [home] : [])];
+  const route = path.length > 1 ? await osrm("route", path, "overview=false") : null;
+  if (!route) return null;
+  const legs = route.routes[0].legs.map((l) => ({ min: l.duration / 60, km: l.distance / 1000 }));
+  const res = { order, legs, min: route.routes[0].duration / 60, km: route.routes[0].distance / 1000 };
+  driveCache.set(key, res);
+  return res;
+}
+
+/* ---------- Wetter pro Tag (Open-Meteo, kostenlos, ohne Key) ---------- */
+const WX = { days: null };
+const WMO = [[0, "☀️", "sonnig"], [1, "🌤️", "überwiegend sonnig"], [2, "⛅", "teils bewölkt"], [3, "☁️", "bedeckt"],
+  [48, "🌫️", "Nebel"], [57, "🌦️", "Nieselregen"], [67, "🌧️", "Regen"], [77, "🌨️", "Schnee"], [82, "🌦️", "Regenschauer"],
+  [86, "🌨️", "Schneeschauer"], [99, "⛈️", "Gewitter"]];
+const wmo = (code) => WMO.find(([max]) => code <= max) || WMO[WMO.length - 1];
+
+async function loadWeather() {
+  const s = S.settings;
+  if (s.home_lat == null) return;
+  const key = `${(+s.home_lat).toFixed(2)},${(+s.home_lon).toFixed(2)}`;
+  const c = store.get("wx", null);
+  if (c && c.key === key && Date.now() - c.at < 3 * 3600e3) { WX.days = c.days; return; }
+  try {
+    const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${s.home_lat}&longitude=${s.home_lon}` +
+      "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=Europe%2FBerlin&forecast_days=16");
+    const d = (await r.json()).daily;
+    const days = {};
+    d.time.forEach((t, i) => { days[t] = { code: d.weather_code[i], max: d.temperature_2m_max[i], min: d.temperature_2m_min[i], rain: d.precipitation_probability_max[i] }; });
+    WX.days = days;
+    store.set("wx", { key, at: Date.now(), days });
+    render();
+  } catch { /* ohne Wetter weiter */ }
+}
+
+function wxFor(day) { return WX.days?.[day] || null; }
+function wxHTML(day, long = false) {
+  const w = wxFor(day); if (!w) return "";
+  const [, emo, txt] = wmo(w.code);
+  return `<span class="wx" title="${esc(txt)}">${emo} ${Math.round(w.max)}°${long ? ` / ${Math.round(w.min)}° · ${esc(txt)}` : ""}${w.rain != null && (long || w.rain >= 30) ? ` · 💧${w.rain} %` : ""}</span>`;
+}
+function wxText(day) { // für das PDF (ohne Symbole)
+  const w = wxFor(day); if (!w) return "";
+  return `${wmo(w.code)[2]}, ${Math.round(w.min)} bis ${Math.round(w.max)} Grad${w.rain != null ? `, Regenrisiko ${w.rain} %` : ""}`;
+}
+
 function openTour(day) {
   if (TOUR.day !== day) { TOUR.day = day; TOUR.skip = new Set(); }
   const all = tourStops(day);
   const withPos = all.filter((e) => e.lat != null && !TOUR.skip.has(e.id));
   const noPos = all.filter((e) => e.lat == null);
   const home = S.settings.home_lat != null ? { lat: S.settings.home_lat, lon: S.settings.home_lon } : null;
-  const { order, km } = bestOrder(withPos, home, TOUR.back && !!home);
-  const road = Math.round(km * 1.3); // Luftlinie -> ungefähre Fahrstrecke
+  const back = TOUR.back && !!home;
+  const driveKey = JSON.stringify([home && [home.lat, home.lon], withPos.map((e) => e.id), back]);
+  const drive = TOUR.driveKey === driveKey ? TOUR.drive : null;
+  const est = bestOrder(withPos, home, back);
+  const order = drive ? drive.order : est.order;
+  const road = Math.round(est.km * 1.3); // Luftlinie -> ungefähre Fahrstrecke (bis die echte Route da ist)
+  if (!drive && withPos.length && TOUR.pendingKey !== driveKey) {
+    TOUR.pendingKey = driveKey;
+    planDrive(withPos, home, back).then((res) => {
+      TOUR.pendingKey = null;
+      if (!res) return;
+      TOUR.drive = res; TOUR.driveKey = driveKey;
+      if ($("#tourDialog").open && TOUR.day === day) openTour(day);
+    });
+  }
   const maxStops = 9; // mehr Zwischenziele nimmt Google Maps nicht
   const used = order.slice(0, maxStops + (TOUR.back && home ? 0 : 1));
   const pt = (e) => `${e.lat},${e.lon}`;
@@ -989,16 +1120,20 @@ function openTour(day) {
   $("#tourBody").innerHTML = `
     <div class="sheet-head"><h2>Tour am ${esc(fmtDay(day))}</h2>
       <button class="icon-btn" type="button" data-close aria-label="Schließen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
-    ${order.length ? `<p class="tour-sum"><strong>${order.length} ${order.length === 1 ? "Stopp" : "Stopps"}</strong> · ca. ${road} km Fahrstrecke${TOUR.back && home ? " (mit Rückfahrt)" : ""}</p>` : ""}
+    ${order.length ? `<p class="tour-sum"><strong>${order.length} ${order.length === 1 ? "Stopp" : "Stopps"}</strong> · ${drive
+      ? `<strong>${fmtDur(drive.min)} Fahrt</strong>, ${fmtKm(drive.km)}`
+      : `ca. ${road} km Fahrstrecke <span class="hint">(Fahrzeit wird berechnet …)</span>`}${back ? " (mit Rückfahrt)" : ""}</p>` : ""}
+    ${wxHTML(day) ? `<p class="tour-wx">Wetter: ${wxHTML(day, true)}</p>` : ""}
     <ol class="tour-list">
       ${home ? `<li class="tour-home">🏠 Start: ${esc(S.settings.home_query || "Zuhause")}</li>` : ""}
-      ${order.map((e) => {
-        const leg = prev ? Math.round(haversine(prev.lat, prev.lon, e.lat, e.lon) * 1.3) : null; prev = e;
+      ${order.map((e, i) => {
+        const l = drive?.legs[home ? i : i - 1];
+        const leg = l ? `${fmtDur(l.min)} · ${fmtKm(l.km)}` : prev ? `ca. ${Math.round(haversine(prev.lat, prev.lon, e.lat, e.lon) * 1.3)} km` : null; prev = e;
         return `<li class="tour-stop" style="--cat: var(--c-${catKey(e.category)})">
           <label class="switch"><input type="checkbox" data-tour-skip="${esc(e.id)}" checked>
-          <span><strong>${esc(e.title)}</strong><small>${esc(e.time_text || "Uhrzeit siehe Anzeige")} · ${esc(e.address || e.location || "")}${leg != null ? ` · ca. ${leg} km` : ""}</small></span></label></li>`;
+          <span><strong>${esc(e.title)}</strong><small>${esc(e.time_text || "Uhrzeit siehe Anzeige")} · ${esc(e.address || e.location || "")}</small>${leg ? `<small class="leg">🚗 ${esc(leg)}</small>` : ""}</span></label></li>`;
       }).join("")}
-      ${TOUR.back && home && order.length ? `<li class="tour-home">🏠 Zurück nach Hause</li>` : ""}
+      ${back && order.length ? `<li class="tour-home">🏠 Zurück nach Hause${drive ? ` <small class="leg">🚗 ${esc(fmtDur(drive.legs[drive.legs.length - 1].min))} · ${esc(fmtKm(drive.legs[drive.legs.length - 1].km))}</small>` : ""}</li>` : ""}
     </ol>
     ${all.filter((e) => TOUR.skip.has(e.id)).map((e) => `<label class="switch tour-off"><input type="checkbox" data-tour-skip="${esc(e.id)}"><span>${esc(e.title)} <small>(nicht dabei)</small></span></label>`).join("")}
     ${noPos.length ? `<p class="hint">Ohne genaue Adresse, deshalb nicht in der Route: ${noPos.map((e) => esc(e.title)).join(", ")}</p>` : ""}
@@ -1040,15 +1175,23 @@ function pushReminder() {
 function checkAppUpdate() {
   const el = $("#appUpdate");
   if (!el) return; // Seite und Programm kurzzeitig unterschiedlich alt (Zwischenspeicher)
-  const old = window.FLOHMARKT_APP && !appHas("backupSet"); // neueste Funktion der App
-  const snoozed = Date.now() - store.get("updateSnooze6", 0) < 3 * 86400000;
+  // Ab dieser Version meldet sich die App selbst (Android-Fenster „Neue Version“); ältere Apps bekommen den Hinweis hier
+  const old = window.FLOHMARKT_APP && !appHas("installUpdate");
+  const snoozed = Date.now() - store.get("updateSnooze7", 0) < 3 * 86400000;
   el.hidden = !old || snoozed;
   if (el.hidden) return;
-  el.innerHTML = `<span>📲 <strong>Neue App-Version:</strong> Gemerktes wird zusätzlich sicher im Handy gespeichert, genauer Standort per GPS, PDF speichern, bessere Darstellung. Einfach herunterladen und über die alte App installieren – alles Gemerkte bleibt.</span>
+  el.innerHTML = `<span>📲 <strong>Neue App-Version:</strong> aktualisiert sich künftig selbst, Gemerktes wird sicher im Handy gespeichert, PDF speichern, bessere Darstellung. Einfach herunterladen und über die alte App installieren – alles Gemerkte bleibt.</span>
     <span class="notice-acts"><button class="btn small" type="button" id="updateNow">Jetzt aktualisieren</button>
     <button class="link-btn" type="button" id="updateLater">Später</button></span>`;
   $("#updateNow")?.addEventListener("click", () => { if (appHas("openUrl")) window.AndroidApp.openUrl(APK_URL); else openExternal(APK_URL); });
-  $("#updateLater")?.addEventListener("click", () => { store.set("updateSnooze6", Date.now()); el.hidden = true; });
+  $("#updateLater")?.addEventListener("click", () => { store.set("updateSnooze7", Date.now()); el.hidden = true; });
+}
+
+function syncAppVersion() {
+  const el = $("#appVersion"); if (!el) return;
+  const v = appHas("appVersion") ? window.AndroidApp.appVersion() : 0;
+  el.textContent = v ? `Installierte App-Version: 1.${v}` : "";
+  $("#checkUpdate").hidden = !appHas("checkUpdate");
 }
 
 function syncReminderSettings() {
@@ -1149,6 +1292,7 @@ async function openSettings() {
   $("#icsUrl").value = new URL("api/favorites.ics", location.href).href;
   $("#settingsError").hidden = true;
   syncReminderSettings();
+  syncAppVersion();
   $("#settings").showModal();
   $("#sourceError").hidden = true;
   if (STATIC) renderSourceList();
@@ -1408,6 +1552,7 @@ async function loadEvents() {
   S.events = data.events; S.categories = data.categories; S.today = data.today;
   addKeptFavorites();
   syncFavSnaps();
+  loadWeather();
   pushReminder();
   checkAppUpdate();
   renderSources();
@@ -1547,6 +1692,8 @@ function bind() {
 
   $("#detail")?.addEventListener("click", async (e) => {
     if (e.target === $("#detail") || e.target.closest("[data-close]")) { $("#detail").close(); return; }
+    const dupe = e.target.closest("[data-dupe]");
+    if (dupe) { openDetail(dupe.dataset.dupe); $("#detail").scrollTop = 0; return; }
     const b = e.target.closest("[data-dact]"); if (!b) return;
     const ev = S.events.find((x) => x.id === $("#detailBody").dataset.id);
     if (b.dataset.dact === "fav") { await setState(ev, { favorite: !ev.favorite }); openDetail(ev.id); }
@@ -1577,6 +1724,7 @@ function bind() {
   $("#homeChip")?.addEventListener("click", openSettings);
   $("#saveSettings")?.addEventListener("click", saveSettings);
   $("#useLocation")?.addEventListener("click", useMyLocation);
+  $("#checkUpdate")?.addEventListener("click", () => { window.AndroidApp.checkUpdate(); toast("Suche nach neuer Version …"); });
   $("#useStart")?.addEventListener("click", async () => {
     resetToStart();
     S.settings = await api("/api/settings");

@@ -46,7 +46,7 @@ function renderPdfBar() {
 }
 
 /* ---------- Reihenfolge: nach Tag, innerhalb des Tages als kürzeste Route ab zu Hause ---------- */
-function pdfPlan(events) {
+async function pdfPlan(events) {
   const home = S.settings.home_lat != null ? { lat: S.settings.home_lat, lon: S.settings.home_lon } : null;
   const byDay = new Map();
   for (const e of events) {
@@ -55,15 +55,22 @@ function pdfPlan(events) {
     byDay.get(d).push(e);
   }
   const days = [...byDay.keys()].sort((a, b) => (a || "9999").localeCompare(b || "9999"));
+  // Echte Fahrzeiten je Tag parallel holen (fällt bei Problemen auf Luftlinie zurück)
+  const drives = await Promise.all(days.map((d) => {
+    const pos = byDay.get(d).filter((e) => e.lat != null);
+    return d && pos.length && home ? planDrive(pos, home, true) : Promise.resolve(null);
+  }));
   let n = 0;
   return {
     home,
     days: days.map((d, i) => {
       const evs = byDay.get(d);
       const pos = evs.filter((e) => e.lat != null), noPos = evs.filter((e) => e.lat == null);
-      const { order, km } = d && pos.length ? bestOrder(pos, home, !!home) : { order: pos, km: 0 };
-      const stops = [...order, ...noPos].map((e) => ({ ev: e, no: ++n }));
-      return { day: d, color: DAY_COLORS[i % DAY_COLORS.length], stops, km: Math.round(km * 1.3), routed: !!d && order.length > 0 };
+      const drive = drives[i];
+      const est = d && pos.length ? bestOrder(pos, home, !!home) : { order: pos, km: 0 };
+      const order = drive ? drive.order : est.order;
+      const stops = [...order, ...noPos].map((e, k) => ({ ev: e, no: ++n, leg: drive && k < order.length ? drive.legs[k] : null }));
+      return { day: d, color: DAY_COLORS[i % DAY_COLORS.length], stops, km: Math.round(est.km * 1.3), drive, routed: !!d && order.length > 0 };
     }),
   };
 }
@@ -234,7 +241,7 @@ async function makePdf() {
   btn.disabled = true; btn.textContent = "PDF wird erstellt …";
   try {
     const { jsPDF } = await loadJsPdf();
-    const plan = pdfPlan(events);
+    const plan = await pdfPlan(events);
     const doc = new jsPDF({ unit: "mm", format: "a4", compress: true });
     const M = 12, PW = 210, PH = 297, CW = PW - 2 * M;
     const INK = [17, 17, 17], GREY = [95, 95, 95], LIGHT = [238, 238, 238], RULE = [170, 170, 170];
@@ -284,10 +291,16 @@ async function makePdf() {
 
     // ---- Routen-Kasten ----
     const routeLines = days.map((d) => {
-      const nums = d.stops.filter((s) => s.ev.lat != null).map((s) => s.no);
-      const txt = nums.length
-        ? `${plan.home ? "Start > " : ""}${nums.join(" > ")}${plan.home ? " > zurück" : ""}   (ca. ${d.km} km Fahrt)`
-        : "keine genaue Adresse für eine Route";
+      const pos = d.stops.filter((s) => s.ev.lat != null);
+      const nums = pos.map((s) => s.no);
+      const back = d.drive?.legs[d.drive.legs.length - 1];
+      let txt = !nums.length ? "keine genaue Adresse für eine Route"
+        : d.drive
+          ? `${plan.home ? "Start" : ""}${pos.map((s) => ` > ${s.no}${s.leg ? ` (${fmtDur(s.leg.min)})` : ""}`).join("")}${back && plan.home ? ` > zurück (${fmtDur(back.min)})` : ""}` +
+            `  =  ${fmtDur(d.drive.min)} Fahrt, ${fmtKm(d.drive.km)}`
+          : `${plan.home ? "Start > " : ""}${nums.join(" > ")}${plan.home ? " > zurück" : ""}   (ca. ${d.km} km Fahrt)`;
+      const wx = wxText(d.day);
+      if (wx) txt += `  ·  Wetter: ${wx}`;
       return { d, nums, txt, url: mapsUrl(plan.home, d.stops) };
     });
     if (routeLines.length) {
@@ -296,7 +309,7 @@ async function makePdf() {
       doc.setFont("helvetica", "bold");
       const linkW = doc.getTextWidth("Google Maps (9 Stopps) >") + 5;
       doc.setFont("helvetica", "normal");
-      const rows = routeLines.map((r) => ({ ...r, lines: doc.splitTextToSize(pdfText(r.txt), CW - 6 - labelW - linkW).slice(0, 3) }));
+      const rows = routeLines.map((r) => ({ ...r, lines: doc.splitTextToSize(pdfText(r.txt), CW - 6 - labelW - linkW).slice(0, 4) }));
       const boxH = rows.reduce((h, r) => h + r.lines.length * 4 + 1.5, 3.5);
       doc.setFillColor(...LIGHT); doc.setDrawColor(...RULE); doc.setLineWidth(0.2);
       doc.roundedRect(M, y, CW, boxH, 1.5, 1.5, "FD");
