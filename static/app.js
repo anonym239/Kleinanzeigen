@@ -156,10 +156,17 @@ async function loadStaticData(force = false) {
 
 function localSettings() {
   const region = L$.data?.region || {};
+  const start = L$.data?.start?.lat != null ? L$.data.start : null; // Standard-Start, z.B. 24147 Kiel-Elmschenhagen Nord
   const own = store.get("homeSettings", {});
+  // Früher nur "24147" eingetragen? Dann den genaueren Standard-Start nehmen (gleiche PLZ)
+  if (start && own.home_query && !own.home_precise && /^\d{5}$/.test(own.home_query.trim()) && start.query.startsWith(own.home_query.trim())) {
+    delete own.home_query; delete own.home_lat; delete own.home_lon; delete own.home_label;
+    store.set("homeSettings", own);
+  }
   return {
-    home_query: region.home_query || "", home_label: region.home_label || "", home_lat: region.home_lat ?? null,
-    home_lon: region.home_lon ?? null, radius_km: region.radius_km || 50, days_ahead: region.days_ahead || 14,
+    home_query: start?.query || region.home_query || "", home_label: start?.query || region.home_label || "",
+    home_lat: start?.lat ?? region.home_lat ?? null, home_lon: start?.lon ?? region.home_lon ?? null,
+    radius_km: region.radius_km || 50, days_ahead: region.days_ahead || 14,
     region_query: region.home_query || "", region_radius: region.radius_km || 50, ...own,
   };
 }
@@ -177,13 +184,17 @@ async function localApi(path, opts) {
     const cur = localSettings();
     const own = store.get("homeSettings", {});
     for (const k of ["radius_km", "days_ahead"]) if (body[k] != null) own[k] = body[k];
-    if (body.home_query != null && body.home_query.trim() !== cur.home_query) {
+    if (body.home_lat != null && body.home_lon != null) {
+      // Genauer Standort vom Handy
+      Object.assign(own, { home_query: body.home_query, home_label: body.home_label || body.home_query,
+        home_lat: body.home_lat, home_lon: body.home_lon, home_precise: true });
+    } else if (body.home_query != null && body.home_query.trim() !== cur.home_query) {
       const q = body.home_query.trim();
       let g = null;
       try { g = q ? await geocodeBrowser(q) : null; } catch { /* offline */ }
       if (q && !g) throw new Error(`Ort „${q}“ wurde nicht gefunden. Bitte PLZ oder Ortsnamen prüfen.`);
-      Object.assign(own, q ? { home_query: q, home_lat: g.lat, home_lon: g.lon, home_label: g.label }
-        : { home_query: "", home_lat: null, home_lon: null, home_label: "" });
+      if (q) Object.assign(own, { home_query: q, home_lat: g.lat, home_lon: g.lon, home_label: g.label, home_precise: false });
+      else { for (const k of ["home_query", "home_lat", "home_lon", "home_label", "home_precise"]) delete own[k]; } // leer = Standard-Start
     }
     store.set("homeSettings", own);
     return localSettings();
@@ -958,15 +969,15 @@ function pushReminder() {
 
 function checkAppUpdate() {
   const el = $("#appUpdate");
-  const old = window.FLOHMARKT_APP && !appHas("setReminderSchedule"); // neueste Funktion der App
-  const snoozed = Date.now() - store.get("updateSnooze4", 0) < 3 * 86400000;
+  const old = window.FLOHMARKT_APP && !appHas("hasLocation"); // neueste Funktion der App
+  const snoozed = Date.now() - store.get("updateSnooze5", 0) < 3 * 86400000;
   el.hidden = !old || snoozed;
   if (el.hidden) return;
-  el.innerHTML = `<span>📲 <strong>Neue App-Version:</strong> Tag und Uhrzeit der Wochenend-Erinnerung einstellbar, PDF speichern, bessere Darstellung. Einfach herunterladen und über die alte App installieren – alles Gemerkte bleibt.</span>
+  el.innerHTML = `<span>📲 <strong>Neue App-Version:</strong> genauer Standort per GPS, Tag und Uhrzeit der Erinnerung einstellbar, PDF speichern, bessere Darstellung. Einfach herunterladen und über die alte App installieren – alles Gemerkte bleibt.</span>
     <span class="notice-acts"><button class="btn small" type="button" id="updateNow">Jetzt aktualisieren</button>
     <button class="link-btn" type="button" id="updateLater">Später</button></span>`;
   $("#updateNow").addEventListener("click", () => { if (appHas("openUrl")) window.AndroidApp.openUrl(APK_URL); else openExternal(APK_URL); });
-  $("#updateLater").addEventListener("click", () => { store.set("updateSnooze4", Date.now()); el.hidden = true; });
+  $("#updateLater").addEventListener("click", () => { store.set("updateSnooze5", Date.now()); el.hidden = true; });
 }
 
 function syncReminderSettings() {
@@ -1053,7 +1064,8 @@ function applyLook() {
 async function openSettings() {
   const s = S.settings;
   $("#setHome").value = s.home_query || "";
-  $("#setHomeLabel").textContent = s.home_label ? `Gefunden: ${s.home_label}` : "";
+  $("#setHomeLabel").textContent = s.home_label ? `Start: ${s.home_label}` : "";
+  syncStartBtn();
   $("#regionHint").textContent = STATIC && s.region_query
     ? `Die Anzeigen werden im Umkreis von ${s.region_radius} km um ${s.region_query} gesucht (einstellbar in config.json). Hier stellst du ein, von wo aus die Entfernung gerechnet wird.` : "";
   $("#setRadius").value = s.radius_km;
@@ -1078,6 +1090,58 @@ async function openSettings() {
         <small>${when(r.finished)} · ${r.ok ? `${r.found} gefunden, ${esc(r.message)}` : `Fehler: ${esc(r.message)}`}</small></div>`).join("")
       : `<p class="hint">Es wurde noch nicht gesucht.</p>`) + `<p class="hint">Insgesamt ${st.total_events} Einträge gespeichert.</p>`;
   } catch { /* egal */ }
+}
+
+/* ---------- Genauer Standort (GPS / Android-Standort) ---------- */
+async function reverseLabel(lat, lon) {
+  try {
+    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&zoom=18&addressdetails=1&lat=${lat}&lon=${lon}`,
+      { headers: { "Accept-Language": "de" } });
+    const a = (await r.json()).address || {};
+    const street = [a.road, a.house_number].filter(Boolean).join(" ");
+    const place = [a.postcode, a.city || a.town || a.village || a.municipality].filter(Boolean).join(" ");
+    const part = a.suburb || a.city_district || a.quarter || "";
+    return [street, place + (part && !place.includes(part) ? `-${part}` : "")].filter(Boolean).join(", ") || "Mein Standort";
+  } catch { return "Mein Standort"; }
+}
+
+function useMyLocation() {
+  const btn = $("#useLocation"), msg = $("#setHomeLabel");
+  if (!navigator.geolocation) { msg.textContent = "Dieses Gerät kann den Standort nicht bestimmen."; return; }
+  btn.disabled = true; btn.textContent = "Standort wird gesucht …";
+  navigator.geolocation.getCurrentPosition(async (pos) => {
+    const { latitude: lat, longitude: lon, accuracy } = pos.coords;
+    const label = await reverseLabel(lat, lon);
+    try {
+      S.settings = await api("/api/settings", { method: "PUT", body: JSON.stringify({ home_query: label, home_label: label, home_lat: lat, home_lon: lon }) });
+      $("#setHome").value = label;
+      msg.textContent = `Gefunden: ${label} (genau auf ca. ${Math.max(5, Math.round(accuracy))} m)`;
+      await loadEvents();
+      syncStartBtn();
+      toast("Standort übernommen – Entfernungen und Routen rechnen jetzt von hier");
+      pushReminder();
+    } catch (e) { msg.textContent = e.message; }
+    btn.disabled = false; btn.textContent = "📍 Meinen Standort verwenden";
+  }, (err) => {
+    btn.disabled = false; btn.textContent = "📍 Meinen Standort verwenden";
+    msg.textContent = err.code === 1
+      ? (window.FLOHMARKT_APP && !appHas("hasLocation")
+        ? "Dafür bitte die neue App-Version installieren (Hinweis oben in der Liste)."
+        : "Standort nicht erlaubt. Bitte beim Nachfragen „Zulassen“ wählen bzw. in den Handy-Einstellungen → Apps → Flohmärkte → Berechtigungen → Standort erlauben.")
+      : "Standort konnte nicht bestimmt werden. Ist der Standort (GPS) am Handy eingeschaltet?";
+  }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 60000 });
+}
+
+function syncStartBtn() {
+  const start = L$.data?.start;
+  $("#useStart").hidden = !STATIC || !start?.query || S.settings.home_query === start.query;
+  $("#useStart").textContent = `Zurück auf ${start?.query || "Standard"}`;
+}
+
+function resetToStart() {
+  const own = store.get("homeSettings", {});
+  for (const k of ["home_query", "home_lat", "home_lon", "home_label", "home_precise"]) delete own[k];
+  store.set("homeSettings", own);
 }
 
 /* ---------- Eigene Quellen (Betrieb ohne Server) ---------- */
@@ -1440,6 +1504,16 @@ function bind() {
   $("#settingsBtn").addEventListener("click", openSettings);
   $("#homeChip").addEventListener("click", openSettings);
   $("#saveSettings").addEventListener("click", saveSettings);
+  $("#useLocation").addEventListener("click", useMyLocation);
+  $("#useStart").addEventListener("click", async () => {
+    resetToStart();
+    S.settings = await api("/api/settings");
+    $("#setHome").value = S.settings.home_query || "";
+    $("#setHomeLabel").textContent = `Start: ${S.settings.home_query}`;
+    syncStartBtn();
+    await loadEvents(); pushReminder();
+    toast(`Start ist wieder ${S.settings.home_query}`);
+  });
   $("#settings").addEventListener("click", (e) => { if (e.target === $("#settings")) $("#settings").close(); });
   $("#fontSeg").addEventListener("click", (e) => { const b = e.target.closest("[data-font]"); if (b) { store.set("font", Number(b.dataset.font)); applyLook(); } });
   $("#themeSeg").addEventListener("click", (e) => { const b = e.target.closest("[data-theme-set]"); if (b) { store.set("theme", b.dataset.themeSet); applyLook(); } });
