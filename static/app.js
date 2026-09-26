@@ -15,13 +15,22 @@ const DEFAULT_FILTERS = {
   range: "weekend", cats: [], q: "", radius: null, weekendOnly: false, favOnly: false,
   undated: false, noLocation: false, services: false, showHidden: false, source: "", sort: "date",
 };
-const FILTER_KEY = "filters.v2"; // neue Standardwerte (ohne Datum aus) gelten auch für bisherige Besucher
-const CAT_COLORS = ["flohmarkt", "hof", "haushalt", "kinder", "antik", "sonstiges"];
+const FILTER_KEY = "filters.v3";
+// Nur diese Einstellungen bleiben beim nächsten Öffnen erhalten. Quelle, Suche, Kategorien usw. starten immer frisch,
+// sonst sieht man später nur noch einen Teil der Termine, ohne zu merken warum.
+const KEEP_FILTERS = ["radius", "sort", "noLocation", "services", "showHidden"];
+const CAT_COLORS = ["dorf", "strasse", "flohmarkt", "hof", "haushalt", "kinder", "antik", "sonstiges"];
+const TOP_CATS = ["dorf", "strasse"]; // die besten Flohmärkte – werden hervorgehoben und stehen oben
+const isTop = (ev) => TOP_CATS.includes(ev.category);
+const savedFilters = () => {
+  const saved = store.get(FILTER_KEY, {}) || {};
+  return Object.fromEntries(KEEP_FILTERS.filter((k) => k in saved).map((k) => [k, saved[k]]));
+};
 
 const S = {
   events: [], settings: {}, categories: {}, today: null,
-  // Startansicht ist immer "Dieses Wochenende"; übrige Filter bleiben gespeichert
-  filters: { ...DEFAULT_FILTERS, ...store.get(FILTER_KEY, {}), range: "weekend" },
+  // Startansicht ist immer "Dieses Wochenende" ohne weitere Einschränkung (nur Umkreis & Sortierung bleiben)
+  filters: { ...DEFAULT_FILTERS, ...savedFilters() },
   view: store.get("view", "list") === "map" ? "map" : "list",
   map: null, mapLayer: null, prevVisit: 0, polling: null,
 };
@@ -61,8 +70,10 @@ function icon(name) {
   return `<svg viewBox="0 0 24 24" aria-hidden="true">${p}</svg>`;
 }
 
-/* Symbole je Art (Marktstand, Garage, Sessel, Teddy, Vase, Preisschild) */
+/* Symbole je Art (Dorf, Straße, Marktstand, Garage, Sessel, Teddy, Vase, Preisschild) */
 const CAT_ICONS = {
+  dorf: '<path d="M2 20h20"/><path d="M3.5 20v-6l3.5-3 3.5 3v6M6 20v-3h2v3"/><path d="M13 20V9l3.5-3.5L20 9v11M16.5 5.5V2.5M15.3 3.7h2.4M15.5 20v-3.5h2V20"/>',
+  strasse: '<path d="M8 3 4 21M16 3l4 18"/><path d="M12 4v2.5M12 10v3M12 16.5V20"/>',
   flohmarkt: '<path d="M3 9.5 5 4h14l2 5.5"/><path d="M3 9.5h18c0 1.7-1.3 3-3 3s-3-1.3-3-3c0 1.7-1.3 3-3 3s-3-1.3-3-3c0 1.7-1.3 3-3 3s-3-1.3-3-3Z"/><path d="M5 12.5V20h14v-7.5M10 20v-4.5h4V20"/>',
   hof: '<path d="M3 11 12 4l9 7"/><path d="M5 9.5V20h14V9.5"/><path d="M8 20v-7h8v7M8 15.5h8M8 18h8"/>',
   haushalt: '<path d="M6 11V8a3 3 0 0 1 3-3h6a3 3 0 0 1 3 3v3"/><path d="M3.5 13a2 2 0 0 1 4 0v2h9v-2a2 2 0 0 1 4 0v5h-17Z"/><path d="M6 18v2M18 18v2"/>',
@@ -317,9 +328,31 @@ function filtered() {
   else list.sort((a, b) => {
     if (!a.start_date !== !b.start_date) return a.start_date ? -1 : 1;
     if (a.start_date !== b.start_date) return (a.start_date || "").localeCompare(b.start_date || "");
+    if (isTop(a) !== isTop(b)) return isTop(a) ? -1 : 1; // Dorf- und Straßen-Flohmärkte zuerst
     return (a.distance_km ?? 9999) - (b.distance_km ?? 9999);
   });
   return list;
+}
+
+/* Hinweis über der Liste, wenn etwas ausgefiltert ist – mit einem Tipp alles wieder zeigen */
+function activeFilterParts() {
+  const f = S.filters, parts = [];
+  if (f.source) parts.push(`Quelle: ${sourceLabel(f.source)}`);
+  if (f.q) parts.push(`Suche: „${f.q}“`);
+  if (f.cats.length) parts.push(f.cats.map((c) => S.categories[c] || c).join(", "));
+  if (f.favOnly) parts.push("nur gemerkte");
+  if (f.weekendOnly) parts.push("nur Sa & So");
+  return parts;
+}
+
+function renderActiveFilters() {
+  const el = $("#activeFilters");
+  const parts = S.view === "fav" ? [] : activeFilterParts();
+  el.hidden = !parts.length;
+  if (!parts.length) return;
+  el.innerHTML = `<span>Filter aktiv: <strong>${esc(parts.join(" · "))}</strong></span>
+    <button class="btn small" type="button" id="activeReset">Alle Termine zeigen</button>`;
+  $("#activeReset").addEventListener("click", resetFilters);
 }
 
 function activeFilterCount() {
@@ -361,6 +394,7 @@ function cardHTML(ev) {
     ? `<img class="thumb" src="${esc(ev.image)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.outerHTML=this.nextElementSibling.innerHTML"><template>${placeholder}</template>`
     : placeholder;
   const pills = [
+    isTop(ev) ? `<span class="pill top">★ Top-Tipp</span>` : "",
     `<span class="pill cat">${catIcon(k, "sm")}${esc(ev.category_label)}</span>`,
     isNew(ev) ? `<span class="pill new">NEU</span>` : "",
     ev.is_service ? `<span class="pill warn">Firma/Werbung</span>` : "",
@@ -369,7 +403,7 @@ function cardHTML(ev) {
       : ["krencky24.de", "meine-flohmarkt-termine.de"].includes(ev.source) ? "Markt-Kalender" : esc(ev.source)}</span>`,
   ].join("");
   return `
-  <article class="card ${ev.hidden ? "is-hidden" : ""}" style="--cat: var(--c-${k})" data-id="${esc(ev.id)}" tabindex="0">
+  <article class="card ${ev.hidden ? "is-hidden" : ""} ${isTop(ev) ? "is-top" : ""}" style="--cat: var(--c-${k})" data-id="${esc(ev.id)}" tabindex="0">
     ${media}
     <div class="card-body">
       <div class="card-top">${pills}</div>
@@ -441,7 +475,7 @@ function renderCats() {
   $("#catChips").innerHTML = Object.entries(S.categories)
     .filter(([key]) => counts[key] || f.cats.includes(key) || key !== "sonstiges")
     .map(([key, label]) => `
-    <button type="button" class="cat-chip" style="--cat: var(--c-${key})" data-cat="${key}" aria-pressed="${f.cats.includes(key)}">
+    <button type="button" class="cat-chip ${TOP_CATS.includes(key) ? "top" : ""}" style="--cat: var(--c-${key})" data-cat="${key}" aria-pressed="${f.cats.includes(key)}">
       ${catIcon(key)}${esc(label)} <span class="n">${counts[key] || 0}</span>
     </button>`).join("");
 }
@@ -475,7 +509,7 @@ function syncControls() {
 }
 
 function render() {
-  store.set(FILTER_KEY, S.filters);
+  store.set(FILTER_KEY, Object.fromEntries(KEEP_FILTERS.map((k) => [k, S.filters[k]])));
   const list = filtered();
   const undated = list.filter((e) => !e.start_date).length;
   const nFav = S.events.filter((e) => e.favorite && !e.hidden).length;
@@ -486,6 +520,7 @@ function render() {
   $("#welcome").hidden = !!S.settings.home_query;
   syncControls();
   renderCats();
+  renderActiveFilters();
   renderList(list);
   applyView();
   if (S.map) renderMap(list);
@@ -541,7 +576,7 @@ function renderMap(list, fit = true) {
       title: ev.title,
       icon: L.divIcon({
         className: "",
-        html: `<div class="pin ${ev.favorite ? "fav" : ""}" style="--cat: var(--c-${k}); --s: ${size}px">${catIcon(k)}</div>`,
+        html: `<div class="pin ${ev.favorite ? "fav" : ""} ${isTop(ev) ? "top" : ""}" style="--cat: var(--c-${k}); --s: ${size}px">${catIcon(k)}</div>`,
         iconSize: [size, size], iconAnchor: [size / 2, size], popupAnchor: [0, -size],
       }),
     });
@@ -870,7 +905,7 @@ async function loadEvents() {
 }
 
 function resetFilters() {
-  S.filters = { ...DEFAULT_FILTERS };
+  S.filters = { ...DEFAULT_FILTERS, range: S.filters.range };
   render();
 }
 
