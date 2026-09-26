@@ -8,7 +8,8 @@
 //   SOURCE_PIN    – wenn gesetzt, muss diese PIN mitgeschickt werden (Schutz vor Fremden)
 
 const REPO = process.env.GITHUB_REPO || "anonym239/Kleinanzeigen";
-const BUILTIN = ["kleinanzeigen.de", "krencky24.de", "meine-flohmarkt-termine.de", "kn-online.de"];
+const BUILTIN = ["kleinanzeigen.de", "krencky24.de", "meine-flohmarkt-termine.de", "kn-online.de", "ln-online.de", "shz.de",
+  "marktcom.de"];
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
