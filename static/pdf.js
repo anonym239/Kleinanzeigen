@@ -77,13 +77,15 @@ function mapsUrl(home, stops) {
     `${wps.length ? `&waypoints=${encodeURIComponent(wps.join("|"))}` : ""}&travelmode=driving`;
 }
 
-/* ---------- Kartenbild (OpenStreetMap-Kacheln auf ein Canvas) ---------- */
+/* ---------- Kartenbild (OpenStreetMap-Kacheln, grau – gut für Schwarz-Weiß-Druck) ---------- */
 const TILE = 256;
 const projX = (lon, z) => ((lon + 180) / 360) * TILE * 2 ** z;
 const projY = (lat, z) => {
   const s = Math.sin((lat * Math.PI) / 180);
   return (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * TILE * 2 ** z;
 };
+// Linienarten je Tag – auch ohne Farbe unterscheidbar
+const DAY_DASH = [[], [14, 7], [3, 6], [16, 5, 3, 5]];
 
 function loadTile(url) {
   return new Promise((resolve) => {
@@ -101,7 +103,7 @@ async function mapImage(plan, W, H) {
   if (plan.home) pts.push(plan.home);
   for (const d of plan.days) for (const s of d.stops) if (s.ev.lat != null) pts.push(s.ev);
   if (!pts.length) return null;
-  const pad = 40;
+  const pad = 46;
   let z = 15;
   for (; z > 3; z--) {
     const xs = pts.map((p) => projX(p.lon, z)), ys = pts.map((p) => projY(p.lat, z));
@@ -115,8 +117,9 @@ async function mapImage(plan, W, H) {
     const c = document.createElement("canvas");
     c.width = W; c.height = H;
     const g = c.getContext("2d");
-    g.fillStyle = "#eef0ec"; g.fillRect(0, 0, W, H);
+    g.fillStyle = "#f4f4f4"; g.fillRect(0, 0, W, H);
     if (withTiles) {
+      g.filter = "grayscale(1) contrast(0.85) brightness(1.08)";
       const jobs = [];
       for (let tx = Math.floor(x0 / TILE); tx <= Math.floor((x0 + W) / TILE); tx++) {
         for (let ty = Math.floor(y0 / TILE); ty <= Math.floor((y0 + H) / TILE); ty++) {
@@ -126,47 +129,50 @@ async function mapImage(plan, W, H) {
         }
       }
       await Promise.all(jobs);
-      g.fillStyle = "rgba(255,255,255,.25)"; g.fillRect(0, 0, W, H); // Karte etwas blasser, Route besser sichtbar
+      g.filter = "none";
+      g.fillStyle = "rgba(255,255,255,.35)"; g.fillRect(0, 0, W, H); // blasser, damit Route und Nummern hervorstechen
     }
-    // Routen je Tag
-    for (const d of plan.days) {
-      if (!d.routed) continue;
+    const path = (line) => { g.beginPath(); line.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); };
+    plan.days.forEach((d, i) => {
+      if (!d.routed) return;
       const line = d.stops.filter((s) => s.ev.lat != null).map((s) => P(s.ev));
       if (plan.home) { line.unshift(P(plan.home)); line.push(P(plan.home)); }
-      g.strokeStyle = "#ffffff"; g.lineWidth = 7; g.lineJoin = "round"; g.lineCap = "round";
-      g.beginPath(); line.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.stroke();
-      g.strokeStyle = d.color; g.lineWidth = 3.5; g.setLineDash([10, 6]);
-      g.beginPath(); line.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.stroke();
+      g.lineJoin = "round"; g.lineCap = "round";
+      g.setLineDash([]); g.strokeStyle = "#ffffff"; g.lineWidth = 9; path(line); g.stroke();
+      g.setLineDash(DAY_DASH[i % DAY_DASH.length]); g.strokeStyle = "#111111"; g.lineWidth = 4; path(line); g.stroke();
       g.setLineDash([]);
-    }
-    // Zuhause
-    if (plan.home) {
+    });
+    if (plan.home) { // Haus-Symbol
       const [x, y] = P(plan.home);
-      g.fillStyle = "#1b2420"; g.strokeStyle = "#f3c63f"; g.lineWidth = 4;
-      g.beginPath(); g.arc(x, y, 11, 0, 2 * Math.PI); g.fill(); g.stroke();
+      g.fillStyle = "#ffffff"; g.strokeStyle = "#111111"; g.lineWidth = 3;
+      g.beginPath(); g.moveTo(x - 13, y - 1); g.lineTo(x, y - 14); g.lineTo(x + 13, y - 1); g.lineTo(x + 10, y - 1);
+      g.lineTo(x + 10, y + 12); g.lineTo(x - 10, y + 12); g.lineTo(x - 10, y - 1); g.closePath(); g.fill(); g.stroke();
+      g.fillStyle = "#111111"; g.fillRect(x - 3, y + 4, 6, 8);
     }
-    // Nummern (bei gleicher Adresse leicht versetzt)
     const used = new Map();
     for (const d of plan.days) {
       for (const s of d.stops) {
         if (s.ev.lat == null) continue;
         let [x, y] = P(s.ev);
-        const key = `${Math.round(x / 6)},${Math.round(y / 6)}`;
+        const key = `${Math.round(x / 8)},${Math.round(y / 8)}`;
         const k = used.get(key) || 0; used.set(key, k + 1);
-        x += k * 22;
+        x += k * 26;
         const top = isTop(s.ev);
-        g.fillStyle = top ? "#e0a800" : d.color; g.strokeStyle = "#ffffff"; g.lineWidth = 3;
-        g.beginPath(); g.arc(x, y, 14, 0, 2 * Math.PI); g.fill(); g.stroke();
-        g.fillStyle = top ? "#2a1f00" : "#ffffff"; g.font = "bold 15px Helvetica, Arial, sans-serif";
+        // normal: schwarzer Kreis mit weißer Zahl; Top-Tipp: weißer Kreis mit dickem schwarzem Doppelrand
+        g.beginPath(); g.arc(x, y, top ? 18 : 15, 0, 2 * Math.PI);
+        g.fillStyle = top ? "#ffffff" : "#111111"; g.fill();
+        g.lineWidth = top ? 5 : 3; g.strokeStyle = top ? "#111111" : "#ffffff"; g.stroke();
+        if (top) { g.beginPath(); g.arc(x, y, 12.5, 0, 2 * Math.PI); g.lineWidth = 1.5; g.stroke(); }
+        g.fillStyle = top ? "#111111" : "#ffffff"; g.font = `bold ${top ? 17 : 16}px Helvetica, Arial, sans-serif`;
         g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(String(s.no), x, y + 1);
       }
     }
     if (withTiles) {
-      g.font = "12px Helvetica, Arial, sans-serif"; g.textAlign = "right"; g.textBaseline = "bottom";
-      g.fillStyle = "rgba(255,255,255,.85)"; g.fillRect(W - 190, H - 18, 190, 18);
-      g.fillStyle = "#333"; g.fillText("© OpenStreetMap-Mitwirkende", W - 6, H - 3);
+      g.font = "13px Helvetica, Arial, sans-serif"; g.textAlign = "right"; g.textBaseline = "bottom";
+      g.fillStyle = "rgba(255,255,255,.9)"; g.fillRect(W - 200, H - 20, 200, 20);
+      g.fillStyle = "#333"; g.fillText("© OpenStreetMap-Mitwirkende", W - 6, H - 4);
     }
-    return c.toDataURL("image/jpeg", 0.88);
+    return c.toDataURL("image/jpeg", 0.9);
   };
   try { return await draw(true); } catch { return draw(false); } // ohne Kacheln, falls der Kartendienst nicht mitspielt
 }
@@ -188,18 +194,37 @@ function loadJsPdf() {
 // Die eingebaute PDF-Schrift kennt nur westeuropäische Zeichen
 const pdfText = (s) => String(s ?? "")
   .replace(/[„“”«»]/g, '"').replace(/[‚‘’]/g, "'").replace(/[–—]/g, "-").replace(/…/g, "...")
-  .replace(/[•·]/g, "·").replace(/€/g, "EUR").replace(/★/g, "*").replace(/\s+/g, " ")
+  .replace(/[•]/g, "·").replace(/€/g, "EUR").replace(/★/g, "*").replace(/\s+/g, " ")
   .replace(/[^\x20-\xff]/g, "").trim();
 
 const shortDay = (iso) => parseISO(iso).toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" });
 const longDay = (iso) => parseISO(iso).toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long" });
+const fullDay = (iso) => parseISO(iso).toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
 function infoText(ev) {
   const d = pdfText(ev.description || "");
   if (!d) return "";
   const first = d.split(/(?<=[.!?])\s/)[0];
   const t = first.length >= 40 ? first : d;
-  return t.length > 150 ? `${t.slice(0, 147).trim()}...` : t;
+  return t.length > 170 ? `${t.slice(0, 167).trim()}...` : t;
+}
+
+/* Straße + Hausnummer aus dem Anzeigentext, falls die Adresse nur PLZ/Ort enthält */
+const STREET_SUF = "straße|strasse|str\\.|weg|allee|platz|ring|damm|chaussee|gasse|redder|twiete|koppel|kamp|stieg|ufer|markt|berg|feld|wiese|brook|moor|horst|hof|tor|reihe|pfad|steig|blick|hörn";
+const STREET_RE = new RegExp("((?:(?:Am|An der|Auf dem|Im|In der|Zum|Zur|Alte[rn]?|Neue[rn]?|Große[rn]?|Kleine[rn]?) )?" +
+  "(?:[A-ZÄÖÜ][a-zäöüß]+-)*(?:[A-ZÄÖÜ][a-zäöüß]*(?:" + STREET_SUF + ")|(?:" + STREET_SUF.replace(/(^|\|)(\w)/g, (m, a, c) => a + c.toUpperCase()) + "))" +
+  "\\s?\\d{1,4}(?!\\d|[.:]\\d)\\s?[a-z]?)(?![a-zäöüß])(?!\\s*(?:uhr|-|–|bis|km|€|eur))");
+function whereText(ev) {
+  const addr = pdfText(ev.address || ev.location || "");
+  if (/\d{1,4}\s?[a-z]?\b/.test(addr.replace(/\b\d{5}\b/g, "")) && /[a-zäöüß]{3}/i.test(addr)) return addr; // hat schon Straße + Nr.
+  const m = `${ev.title || ""} ${ev.description || ""}`.match(STREET_RE);
+  const street = m ? pdfText(m[1]).replace(/str\.(\d)/i, "str. $1") : "";
+  return [street, addr || "Ort siehe Anzeige"].filter(Boolean).join(", ");
+}
+
+function sourceText(ev) {
+  return ev.source === "kleinanzeigen" ? "Kleinanzeigen" : ev.manual ? "eigener Eintrag"
+    : ["krencky24.de", "meine-flohmarkt-termine.de"].includes(ev.source) ? "Markt-Kalender" : pdfText(ev.source || "");
 }
 
 async function makePdf() {
@@ -212,126 +237,193 @@ async function makePdf() {
     const plan = pdfPlan(events);
     const doc = new jsPDF({ unit: "mm", format: "a4", compress: true });
     const M = 12, PW = 210, PH = 297, CW = PW - 2 * M;
+    const INK = [17, 17, 17], GREY = [95, 95, 95], LIGHT = [238, 238, 238], RULE = [170, 170, 170];
+    const ink = (c) => doc.setTextColor(...c);
     const dated = events.filter((e) => e.start_date).map((e) => e.start_date).sort();
-    const single = plan.days.filter((d) => d.day).length === 1;
+    const days = plan.days.filter((d) => d.day);
+    const single = days.length === 1;
 
-    // Kopf
-    doc.setTextColor(20, 30, 26);
-    doc.setFont("helvetica", "bold"); doc.setFontSize(17);
-    doc.text(single ? `Flohmarkt-Tour ${pdfText(longDay(dated[0]))}` : "Flohmärkte - meine Auswahl", M, M + 5);
-    doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(90, 100, 96);
-    const range = dated.length ? (dated[0] === dated[dated.length - 1] ? shortDay(dated[0]) : `${shortDay(dated[0])} bis ${shortDay(dated[dated.length - 1])}`) : "";
-    doc.text(pdfText([`${events.length} ${events.length === 1 ? "Termin" : "Termine"}`, range,
-      S.settings.home_query ? `Start: ${S.settings.home_query}` : ""].filter(Boolean).join("  ·  ")), M, M + 11);
-    doc.text(pdfText(`erstellt am ${new Date().toLocaleDateString("de-DE")}`), PW - M, M + 11, { align: "right" });
-    let y = M + 15;
+    // ---- Kopf ----
+    ink(INK); doc.setFont("helvetica", "bold"); doc.setFontSize(22);
+    doc.text(single ? "Flohmarkt-Tour" : "Flohmärkte", M, M + 7);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(12.5);
+    const sub = single ? fullDay(dated[0])
+      : dated.length ? `${longDay(dated[0])} bis ${longDay(dated[dated.length - 1])}` : "meine Auswahl";
+    doc.text(pdfText(sub), M, M + 13.5);
+    doc.setFontSize(8.5); ink(GREY);
+    doc.text(pdfText(`${events.length} ${events.length === 1 ? "Termin" : "Termine"}`), PW - M, M + 3, { align: "right" });
+    if (S.settings.home_query) doc.text(pdfText(`Start: ${S.settings.home_query}`), PW - M, M + 8, { align: "right" });
+    doc.text(pdfText(`Stand: ${new Date().toLocaleDateString("de-DE")}`), PW - M, M + 13, { align: "right" });
+    doc.setDrawColor(...INK); doc.setLineWidth(0.8); doc.line(M, M + 17, PW - M, M + 17);
+    let y = M + 21;
 
-    // Karte
-    const mapH = events.length <= 8 ? 92 : events.length <= 16 ? 78 : 62;
+    // ---- Karte ----
+    const mapH = events.length <= 6 ? 88 : events.length <= 12 ? 74 : events.length <= 18 ? 60 : 48;
     const img = await mapImage(plan, Math.round(CW * 5), Math.round(mapH * 5));
     if (img) {
       doc.addImage(img, "JPEG", M, y, CW, mapH);
-      doc.setDrawColor(200, 206, 203); doc.rect(M, y, CW, mapH);
-      y += mapH + 4;
+      doc.setDrawColor(...INK); doc.setLineWidth(0.3); doc.rect(M, y, CW, mapH);
+      y += mapH + 3.5;
+      // Legende (in Schwarz-Weiß eindeutig)
+      doc.setFontSize(7.5); ink(GREY); doc.setLineWidth(0.3);
+      let lx = M;
+      doc.setFillColor(...INK); doc.circle(lx + 1.6, y - 1.1, 1.6, "F");
+      doc.text("Termin", lx + 4.2, y); lx += 17;
+      doc.setDrawColor(...INK); doc.setLineWidth(0.6); doc.setFillColor(255, 255, 255); doc.circle(lx + 1.8, y - 1.1, 1.8, "FD");
+      doc.text("Top-Tipp (Dorf-/Straßen-Flohmarkt)", lx + 4.6, y); lx += 55;
+      doc.setLineWidth(0.3); doc.rect(lx, y - 2.6, 3, 2.6); doc.line(lx - 0.4, y - 2.4, lx + 1.5, y - 3.8); doc.line(lx + 1.5, y - 3.8, lx + 3.4, y - 2.4);
+      doc.text("Start/Zuhause", lx + 4.4, y); lx += 25;
+      days.forEach((d, i) => {
+        if (!d.routed) return;
+        doc.setLineWidth(0.6); doc.setLineDashPattern(DAY_DASH[i % DAY_DASH.length].map((v) => v / 5), 0);
+        doc.line(lx, y - 1.1, lx + 7, y - 1.1); doc.setLineDashPattern([], 0);
+        doc.text(pdfText(shortDay(d.day)), lx + 8.5, y); lx += 26;
+      });
+      y += 4;
     }
 
-    // Route je Tag
-    doc.setFontSize(9);
-    for (const d of plan.days) {
-      if (!d.day) continue;
+    // ---- Routen-Kasten ----
+    const routeLines = days.map((d) => {
       const nums = d.stops.filter((s) => s.ev.lat != null).map((s) => s.no);
-      const [r, g, b] = [1, 3, 5].map((i) => parseInt(d.color.slice(i, i + 2), 16));
-      doc.setFillColor(r, g, b); doc.rect(M, y - 2.6, 3, 3, "F");
-      doc.setFont("helvetica", "bold"); doc.setTextColor(20, 30, 26);
-      const head = pdfText(`${longDay(d.day)}:`);
-      doc.text(head, M + 5, y);
-      const hw = doc.getTextWidth(head) + 2;
+      const txt = nums.length
+        ? `${plan.home ? "Start > " : ""}${nums.join(" > ")}${plan.home ? " > zurück" : ""}   (ca. ${d.km} km Fahrt)`
+        : "keine genaue Adresse für eine Route";
+      return { d, nums, txt, url: mapsUrl(plan.home, d.stops) };
+    });
+    if (routeLines.length) {
+      doc.setFontSize(9);
+      const labelW = 36;
+      doc.setFont("helvetica", "bold");
+      const linkW = doc.getTextWidth("Google Maps (9 Stopps) >") + 5;
       doc.setFont("helvetica", "normal");
-      const route = nums.length
-        ? `${plan.home ? "Start" : ""}${plan.home ? " > " : ""}${nums.join(" > ")}${plan.home ? " > zurück" : ""}  ·  ca. ${d.km} km`
-        : "keine Adresse für die Route";
-      const url = mapsUrl(plan.home, d.stops);
-      const linkText = nums.length > 9 ? "Route (erste 9 Stopps) in Google Maps" : "Route in Google Maps öffnen";
-      const linkW = url ? doc.getTextWidth(linkText) + 4 : 0;
-      const lines = doc.splitTextToSize(pdfText(route), CW - 5 - hw - linkW).slice(0, 3);
-      doc.text(lines, M + 5 + hw, y);
-      if (url) {
-        doc.setTextColor(14, 111, 96);
-        doc.textWithLink(linkText, PW - M, y, { url, align: "right" });
+      const rows = routeLines.map((r) => ({ ...r, lines: doc.splitTextToSize(pdfText(r.txt), CW - 6 - labelW - linkW).slice(0, 3) }));
+      const boxH = rows.reduce((h, r) => h + r.lines.length * 4 + 1.5, 3.5);
+      doc.setFillColor(...LIGHT); doc.setDrawColor(...RULE); doc.setLineWidth(0.2);
+      doc.roundedRect(M, y, CW, boxH, 1.5, 1.5, "FD");
+      let ry = y + 5;
+      for (const r of rows) {
+        doc.setFont("helvetica", "bold"); ink(INK);
+        doc.text(pdfText(`Route ${shortDay(r.d.day)}:`), M + 3, ry);
+        doc.setFont("helvetica", "normal");
+        doc.text(r.lines, M + 3 + labelW, ry);
+        if (r.url) {
+          doc.setFont("helvetica", "bold");
+          doc.textWithLink(r.nums.length > 9 ? "Google Maps (9 Stopps) >" : "In Google Maps öffnen >", PW - M - 3, ry, { url: r.url, align: "right" });
+          doc.setFont("helvetica", "normal");
+        }
+        ry += r.lines.length * 4 + 1.5;
       }
-      y += 4 * lines.length + 1;
+      y += boxH + 5;
     }
-    y += 1;
-    doc.setDrawColor(210, 215, 212); doc.line(M, y, PW - M, y);
-    y += 4;
 
-    // Einträge – Größe so wählen, dass alles auf die Seite passt
-    const footerY = PH - 8;
-    const avail = footerY - 4 - y;
+    // ---- Termine: so groß wie möglich, alles auf eine Seite ----
+    const footerY = PH - 7;
+    const avail = footerY - 5 - y;
     const layouts = [
-      { cols: 1, fs: 9.5, info: true }, { cols: 1, fs: 8.5, info: true }, { cols: 2, fs: 8.5, info: true },
-      { cols: 2, fs: 7.5, info: true }, { cols: 2, fs: 7.5, info: false }, { cols: 2, fs: 6.5, info: false },
+      { cols: 1, fs: 10, info: 2 }, { cols: 1, fs: 9, info: 2 }, { cols: 2, fs: 10, info: 2 }, { cols: 2, fs: 9, info: 2 },
+      { cols: 2, fs: 8.2, info: 2 },
+      { cols: 2, fs: 7.6, info: 1 }, { cols: 2, fs: 7, info: 0 }, { cols: 2, fs: 6.6, info: 0, what: false },
+      { cols: 2, fs: 6.4, info: 0, what: false, titleLines: 1 }, { cols: 3, fs: 6.2, info: 0, what: false },
+      { cols: 3, fs: 5.8, info: 0, what: false, titleLines: 1 },
     ];
-    const items = plan.days.flatMap((d) => d.stops.map((s) => ({ ...s, color: d.color })));
-    const blocks = (L) => {
-      const colW = (CW - (L.cols - 1) * 6) / L.cols - 8;
-      const lh = L.fs * 0.42;
-      doc.setFontSize(L.fs);
+    const items = plan.days.flatMap((d) => d.stops);
+    const gap = 6, numW = 9, labW = (fs) => fs * 1.25;
+    const measure = (L) => {
+      const colW = (CW - (L.cols - 1) * gap) / L.cols;
+      const textW = colW - numW - labW(L.fs) - 7; // rechts Platz fürs Abhak-Kästchen
+      const lh = L.fs * 0.43;
       return items.map((it) => {
         const e = it.ev;
-        doc.setFont("helvetica", "bold");
-        const title = doc.splitTextToSize(pdfText(`${isTop(e) ? "* Top-Tipp: " : ""}${e.title}`), colW).slice(0, 2);
-        doc.setFont("helvetica", "normal");
-        const when = pdfText([e.start_date ? shortDay(e.start_date) : "Datum siehe Anzeige", e.time_text,
-          e.category_label].filter(Boolean).join("  ·  "));
-        const where = doc.splitTextToSize(pdfText([e.address || e.location || "Ort siehe Anzeige",
-          e.distance_km != null ? `${String(e.distance_km).replace(".", ",")} km` : ""].filter(Boolean).join("  ·  ")), colW).slice(0, 2);
-        const info = L.info ? doc.splitTextToSize(infoText(e), colW).slice(0, 2) : [];
-        const lines = title.length + 1 + where.length + info.length;
-        return { it, title, when, where, info, h: lines * lh + 2.2, lh };
+        doc.setFontSize(L.fs + 1); doc.setFont("helvetica", "bold");
+        const title = doc.splitTextToSize(pdfText(e.title), colW - numW - 7).slice(0, L.titleLines || 2);
+        doc.setFontSize(L.fs); doc.setFont("helvetica", "normal");
+        const when = doc.splitTextToSize(pdfText([e.start_date ? longDay(e.start_date) : "Datum siehe Anzeige",
+          e.time_text ? `${e.time_text}` : "Uhrzeit siehe Anzeige"].join(", ")), textW).slice(0, 2);
+        const where = doc.splitTextToSize(pdfText(whereText(e) + (e.distance_km != null ? `  (${String(e.distance_km).replace(".", ",")} km)` : "")), textW).slice(0, 2);
+        const what = L.what === false ? [] : doc.splitTextToSize(pdfText([e.category_label, sourceText(e), e.gone ? "Anzeige nicht mehr online" : ""].filter(Boolean).join(" · ")), textW).slice(0, 1);
+        const info = L.info ? doc.splitTextToSize(infoText(e), textW).slice(0, L.info) : [];
+        const tl = (L.fs + 1) * 0.43;
+        const h = title.length * tl + (when.length + where.length + what.length + info.length) * lh + (isTop(e) ? lh : 0) + (L.cols === 3 ? 2.6 : 4);
+        return { it, e, title, when, where, what, info, h, lh, tl, colW };
       });
     };
-    let L, bl;
-    for (L of layouts) {
-      bl = blocks(L);
-      // Spalten der Reihe nach füllen
-      const cols = Array.from({ length: L.cols }, () => 0);
+    // Spalten gleichmäßig füllen (Reihenfolge bleibt: erst links, dann rechts)
+    const distribute = (bl, cols) => {
+      const total = bl.reduce((a, b) => a + b.h, 0);
+      const target = Math.max(total / cols, ...bl.map((b) => b.h));
+      const col = [], heights = Array(cols).fill(0);
       let c = 0;
-      for (const b of bl) { if (cols[c] + b.h > avail && c < L.cols - 1) c++; cols[c] += b.h; }
-      if (Math.max(...cols) <= avail) break;
+      for (const b of bl) {
+        if (c < cols - 1 && heights[c] > 0 && heights[c] + b.h / 2 > target) c++;
+        col.push(c); heights[c] += b.h;
+      }
+      return { col, heights };
+    };
+    let L, bl, dist;
+    for (L of layouts) {
+      bl = measure(L);
+      dist = distribute(bl, L.cols);
+      if (Math.max(...dist.heights) <= avail) break;
     }
-    const colW = (CW - (L.cols - 1) * 6) / L.cols;
-    let col = 0, cy = y;
-    for (const b of bl) {
-      if (cy + b.h > footerY - 4 && col < L.cols - 1) { col++; cy = y; }
-      if (cy + b.h > footerY - 2) break; // Notbremse (sollte nicht vorkommen)
-      const x = M + col * (colW + 6);
-      const e = b.it.ev;
-      const top = isTop(e);
-      // Nummer
-      const [r, g, bb] = top ? [224, 168, 0] : [1, 3, 5].map((i) => parseInt(b.it.color.slice(i, i + 2), 16));
-      doc.setFillColor(r, g, bb); doc.circle(x + 2.6, cy + b.lh * 0.55, 2.6, "F");
-      doc.setFont("helvetica", "bold"); doc.setFontSize(Math.min(8, L.fs)); doc.setTextColor(top ? 42 : 255, top ? 31 : 255, top ? 0 : 255);
-      doc.text(String(b.it.no), x + 2.6, cy + b.lh * 0.55 + 1, { align: "center" });
-      const tx = x + 7;
-      let ly = cy + b.lh * 0.8;
-      doc.setFontSize(L.fs); doc.setTextColor(20, 30, 26);
-      for (const t of b.title) {
-        if (e.url) doc.textWithLink(t, tx, ly, { url: e.url }); else doc.text(t, tx, ly);
+    let cy = y, row = 0, prevCol = 0;
+    const bottoms = [];
+    for (const [i, b] of bl.entries()) {
+      const col = dist.col[i];
+      if (col !== prevCol) { bottoms.push(cy); cy = y; row = 0; prevCol = col; }
+      if (cy + b.h > footerY - 3) break;
+      const x = M + col * (b.colW + gap);
+      const e = b.e, top = isTop(e);
+      if (row++ % 2 === 0) { doc.setFillColor(246, 246, 246); doc.rect(x, cy - 0.5, b.colW, b.h - 1, "F"); }
+      // Nummer: schwarz gefüllt; Top-Tipp weiß mit Doppelrand (wie auf der Karte)
+      const cx = x + 4.2, ccy = cy + b.tl * 0.75;
+      if (top) {
+        doc.setDrawColor(...INK); doc.setFillColor(255, 255, 255); doc.setLineWidth(0.7); doc.circle(cx, ccy, 3.4, "FD");
+        doc.setLineWidth(0.25); doc.circle(cx, ccy, 2.5, "S");
+      } else { doc.setFillColor(...INK); doc.circle(cx, ccy, 3.2, "F"); }
+      doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); ink(top ? INK : [255, 255, 255]);
+      doc.text(String(b.it.no), cx, ccy + 1.05, { align: "center" });
+      // Abhak-Kästchen rechts
+      doc.setDrawColor(...INK); doc.setLineWidth(0.3); doc.rect(x + b.colW - 5.5, cy + 0.2, 4, 4);
+      const tx = x + numW;
+      let ly = cy + b.tl * 0.95;
+      doc.setFontSize(L.fs + 1); ink(INK); doc.setFont("helvetica", "bold");
+      for (const t of b.title) { if (e.url) doc.textWithLink(t, tx, ly, { url: e.url }); else doc.text(t, tx, ly); ly += b.tl; }
+      doc.setFontSize(L.fs);
+      if (top) {
+        doc.setFont("helvetica", "bold"); doc.setLineWidth(0.25);
+        const tw = doc.getTextWidth("TOP-TIPP") + 2.4;
+        doc.rect(tx, ly - b.lh * 0.8, tw, b.lh * 1.0); doc.text("TOP-TIPP", tx + 1.2, ly - 0.1);
         ly += b.lh;
       }
-      doc.setFont("helvetica", "normal"); doc.setTextColor(40, 50, 46);
-      doc.text(b.when, tx, ly); ly += b.lh;
-      doc.setTextColor(90, 100, 96);
-      for (const t of b.where) { doc.text(t, tx, ly); ly += b.lh; }
-      doc.setFont("helvetica", "italic");
-      for (const t of b.info) { doc.text(t, tx, ly); ly += b.lh; }
+      const lab = (label, lines, bold = false, italic = false) => {
+        if (!lines.length) return;
+        doc.setFont("helvetica", "bold"); ink(GREY); doc.text(label, tx, ly);
+        doc.setFont("helvetica", italic ? "italic" : bold ? "bold" : "normal"); ink(italic ? GREY : INK);
+        for (const t of lines) { doc.text(t, tx + labW(L.fs), ly); ly += b.lh; }
+      };
+      lab("Wann", b.when, true);
+      lab("Wo", b.where);
+      lab("Was", b.what);
+      if (b.info.length) lab("", b.info, false, true);
       cy += b.h;
+      doc.setDrawColor(...RULE); doc.setLineWidth(0.15); doc.line(x, cy - 1.5, x + b.colW, cy - 1.5);
     }
 
-    // Fuß
-    doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(120, 128, 125);
-    doc.text(pdfText(`Flohmarkt-Finder${L$.data?.site_url ? ` · ${L$.data.site_url.replace(/^https?:\/\//, "")}` : ""} · Angaben ohne Gewähr - Titel antippen öffnet die Anzeige · Kilometer ungefähr`), M, footerY);
+    // ---- Notizen, wenn noch Platz ist ----
+    bottoms.push(cy);
+    const lastY = Math.max(...bottoms);
+    if (footerY - 6 - lastY > 22) {
+      let ny = lastY + 5;
+      doc.setFont("helvetica", "bold"); doc.setFontSize(9); ink(INK); doc.text("Notizen", M, ny);
+      doc.setDrawColor(...RULE); doc.setLineWidth(0.2);
+      for (ny += 7; ny < footerY - 5; ny += 7) doc.line(M, ny, PW - M, ny);
+    }
+
+    // ---- Fuß ----
+    doc.setDrawColor(...INK); doc.setLineWidth(0.3); doc.line(M, footerY - 3.5, PW - M, footerY - 3.5);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(7.2); ink(GREY);
+    doc.text(pdfText(`Flohmarkt-Finder${L$.data?.site_url ? ` · ${L$.data.site_url.replace(/^https?:\/\//, "")}` : ""}`), M, footerY);
+    doc.text("Angaben ohne Gewähr · Titel anklicken öffnet die Anzeige · km = Luftlinie ab Start", PW - M, footerY, { align: "right" });
 
     const name = `Flohmarkt-${single ? "Tour" : "Auswahl"}-${dated[0] || toISO(new Date())}.pdf`;
     if (appHas("savePdf")) {
