@@ -8,49 +8,34 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Mögliche Quellen prüfen
+      - name: marktcom Liste PLZ 2
         run: |
           set +e
           UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36"
-          for u in \
-            "https://www.troedelmarkt-flohmarkt.de/" \
-            "https://www.flohmarkt-termine.net/" \
-            "https://www.kiel.de/de/kultur_freizeit/veranstaltungen/index.php" \
-            "https://www.kiel-sailing-city.de/veranstaltungen" \
-            "https://www.flohmarkt-kiel.de/" \
-            "https://www.nordbuzz.de/" \
-            "https://www.kinderflohmarkt-kiel.de/" \
-            "https://www.flohmarkt-in.de/schleswig-holstein" \
-            "https://www.schleswig-holstein.de/DE/landesportal/veranstaltungen" \
-            "https://www.hl-live.de/text.php" \
-            "https://www.kieler-express.de/" \
-            "https://www.kielerleben.de/veranstaltungen" \
-            "https://www.trödelmarkt.de/" \
-            "https://www.flohmarktsuche.de/" \
-            "https://www.flohmarkttermine.de/" \
-            "https://www.markttermine.de/" ; do
-            out=$(curl -sSL -m 25 -A "$UA" -w '\n__CODE__%{http_code} %{url_effective}' "$u" 2>&1)
-            code=$(echo "$out" | tail -1)
-            body=$(echo "$out" | head -n -1)
-            fm=$(echo "$body" | grep -oi "flohmarkt\|trödelmarkt\|flohmärkte" | wc -l)
-            dates=$(echo "$body" | grep -oE "\b[0-3]?[0-9]\.[01]?[0-9]\.(20)?2[6-7]\b" | wc -l)
-            items=$(echo "$body" | grep -o "<item>" | wc -l)
-            echo "$u -> $code | bytes=$(echo "$body" | wc -c) floh=$fm daten=$dates rss_items=$items"
-            echo "$body" | grep -oiE "<title>[^<]{0,120}" | grep -i "floh\|trödel\|basar" | head -3
-          done
-      - name: marktcom.de Aufbau
+          curl -sSL -m 30 -A "$UA" "https://www.marktcom.de/termine/plz?q%5Bevent_plz_start%5D=2" > l.html
+          echo "Größe: $(wc -c < l.html)  Veranstaltungslinks: $(grep -o '/veranstaltung/' l.html | wc -l)"
+          grep -oE 'href="[^"]*page=[0-9]+[^"]*"' l.html | sort -u | head
+          python3 - <<'PY'
+          import re
+          h=open('l.html',encoding='utf-8',errors='ignore').read()
+          i=h.find('/veranstaltung/')
+          print(h[max(0,i-2500):i+2500])
+          PY
+      - name: marktcom Detailseite
         run: |
           set +e
           UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36"
-          curl -sSL -m 25 -A "$UA" "https://www.marktcom.de/" > m.html
-          grep -oE 'href="[^"]+"' m.html | sort -u | grep -iE "schleswig|holstein|kiel|plz|termin|suche|region|bundesland|flohm" | head -60
-          grep -oE '<form[^>]*>' m.html | head; grep -oE '<input[^>]*name="[^"]+"' m.html | head -20
-          echo ----; grep -o 'application/ld+json' m.html | wc -l
-          echo ---- Ausschnitt; sed 's/<[^>]*>/ /g' m.html | tr -s ' \n' | grep -iE "flohmarkt" | head -20
-      - name: sh:z und LN Titel mit Floh
+          link=$(grep -oE '/veranstaltung/[^"?]+' <(curl -sSL -m 30 -A "$UA" "https://www.marktcom.de/termine/plz?q%5Bevent_plz_start%5D=2") | head -1)
+          echo "Detail: $link"
+          curl -sSL -m 30 -A "$UA" "https://www.marktcom.de$link" > d.html
+          grep -c 'application/ld+json' d.html
+          python3 - <<'PY'
+          import re
+          h=open('d.html',encoding='utf-8',errors='ignore').read()
+          for m in re.finditer(r'<script type="application/ld\+json">(.*?)</script>', h, re.S): print(m.group(1)[:1500])
+          t=re.sub(r'<[^>]+>',' ',h); t=re.sub(r'\s+',' ',t)
+          i=t.find('Termin'); print(t[max(0,i-300):i+1200])
+          PY
+      - name: LN Feed Titel
         run: |
-          set +e
-          for u in "https://www.shz.de/rss" "https://www.ln-online.de/arc/outboundfeeds/rss/" "https://www.ln-online.de/arc/outboundfeeds/rss/category/lokales/luebeck/" "https://www.ln-online.de/arc/outboundfeeds/rss/category/lokales/ostholstein/" "https://www.ln-online.de/arc/outboundfeeds/rss/category/lokales/segeberg/"; do
-            echo "== $u"; curl -sSL -m 25 "$u" | grep -oE "<title>[^<]{0,150}" | head -4
-            curl -sSL -m 25 "$u" | grep -c "<item>"
-          done
+          curl -sSL -m 25 "https://www.ln-online.de/arc/outboundfeeds/rss/category/lokales/segeberg/" | python3 -c "import sys,re; x=sys.stdin.read(); print(re.findall(r'<title><!\[CDATA\[(.*?)\]\]>', x)[:8])"
