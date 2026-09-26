@@ -429,6 +429,20 @@ function filtered() {
   return list;
 }
 
+/* Wann wurden die Termine zuletzt gesucht? (alle ~3 Stunden automatisch) */
+function renderDataAge() {
+  const el = $("#dataAge"); if (!el) return;
+  const at = STATIC ? L$.data?.generated_at : null;
+  if (!at) { el.textContent = ""; return; }
+  const d = new Date(at * 1000), hours = (Date.now() / 1000 - at) / 3600;
+  const day = toISO(d) === S.today ? "heute" : d.toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "numeric" });
+  const time = d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+  el.classList.toggle("old", hours > 6);
+  el.textContent = hours > 6
+    ? `⚠️ Stand: ${day} ${time} Uhr – die automatische Suche ist überfällig`
+    : `Stand: ${day} ${time} Uhr · wird alle 3 Stunden aktualisiert`;
+}
+
 function activeFilterCount() {
   const f = S.filters, d = DEFAULT_FILTERS;
   let n = f.cats.length ? 1 : 0;
@@ -594,6 +608,7 @@ function render() {
     ? `${nFav} gemerkte ${nFav === 1 ? "Anzeige" : "Anzeigen"}`
     : `${list.length} ${list.length === 1 ? "Termin" : "Termine"}${undated ? ` (davon ${undated} ohne Datum)` : ""}`;
   $("#welcome").hidden = !!S.settings.home_query;
+  renderDataAge();
   syncControls();
   renderCats();
   renderMemoryHints();
@@ -1775,6 +1790,8 @@ async function main() {
   await startLoad();
   const st = await pollStatus();
   if (st && !st.last_finished && !st.runs.length && S.settings.home_query && !st.running) startRefresh();
+  // Bleibt die Seite/App lange offen: alle 15 Minuten nachsehen, ob es neue Termine gibt
+  if (STATIC) setInterval(() => { if (!document.hidden) loadEvents().catch(() => {}); }, 15 * 60 * 1000);
   if ("serviceWorker" in navigator && !window.FLOHMARKT_APP) navigator.serviceWorker.register("sw.js").catch(() => {});
 }
 
