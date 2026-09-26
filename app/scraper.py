@@ -58,6 +58,7 @@ def _geocode_event(ev: dict, settings: dict | None = None) -> None:
         if len(parts) > 1:
             queries.append(re.sub(r"^\d{5}\s*", "", parts[-1]))
     queries.append(ev.get("location"))  # reiner Ortsname zuletzt ("Marktplatz" gibt es überall)
+    queries += [re.sub(r"^(?:Gemeinde|Stadt|Amt|Ortsteil|OT|Hansestadt)\s+", "", q or "") for q in queries]  # "Gemeinde Denkte"
     for q in dict.fromkeys(q for q in queries if q):
         res = geo.geocode(q)
         if res:

@@ -1,0 +1,46 @@
+name: API-Probe (Entwicklung, wird wieder entfernt)
+on:
+  push:
+    paths: [.github/workflows/api-probe.yml]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mögliche Quellen prüfen
+        run: |
+          UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36"
+          for u in \
+            "https://www.ln-online.de/arc/outboundfeeds/rss/" \
+            "https://www.ln-online.de/arc/outboundfeeds/rss/category/lokales/" \
+            "https://www.shz.de/rss" \
+            "https://www.shz.de/lokales/rss" \
+            "https://www.marktcom.de/flohmarkt/schleswig-holstein" \
+            "https://www.marktcom.de/" \
+            "https://www.flohmarkt.de/" \
+            "https://www.troedelmarkt-flohmarkt.de/" \
+            "https://www.flohmarkt-termine.net/" \
+            "https://www.kiel.de/de/kultur_freizeit/veranstaltungen/index.php" \
+            "https://www.kiel-sailing-city.de/veranstaltungen" \
+            "https://www.flohmarkt-kiel.de/" \
+            "https://www.nordbuzz.de/" \
+            "https://www.kinderflohmarkt-kiel.de/" \
+            "https://www.flohmarkt-in.de/schleswig-holstein" \
+            "https://www.schleswig-holstein.de/DE/landesportal/veranstaltungen" \
+            "https://www.hl-live.de/text.php" \
+            "https://www.kieler-express.de/" \
+            "https://www.kielerleben.de/veranstaltungen" \
+            "https://www.trödelmarkt.de/" \
+            "https://www.flohmarktsuche.de/" \
+            "https://www.flohmarkttermine.de/" \
+            "https://www.markttermine.de/" ; do
+            out=$(curl -sSL -m 25 -A "$UA" -w '\n__CODE__%{http_code} %{url_effective}' "$u" 2>&1)
+            code=$(echo "$out" | tail -1)
+            body=$(echo "$out" | head -n -1)
+            fm=$(echo "$body" | grep -oi "flohmarkt\|trödelmarkt\|flohmärkte" | wc -l)
+            dates=$(echo "$body" | grep -oE "\b[0-3]?[0-9]\.[01]?[0-9]\.(20)?2[6-7]\b" | wc -l)
+            items=$(echo "$body" | grep -o "<item>" | wc -l)
+            echo "$u -> $code | bytes=$(echo "$body" | wc -c) floh=$fm daten=$dates rss_items=$items"
+            echo "$body" | grep -oiE "<title>[^<]{0,120}" | grep -i "floh\|trödel\|basar" | head -3
+          done
