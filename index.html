@@ -191,9 +191,12 @@
     <fieldset>
       <legend>Erinnerung</legend>
       <label class="switch app-only"><input type="checkbox" id="setFriday">
-        <span>Jeden Freitag: Überblick, was am Wochenende los ist</span></label>
-      <div class="field app-only"><span class="field-label">Uhrzeit</span>
+        <span>Wochenend-Überblick als Nachricht aufs Handy</span></label>
+      <div class="field app-only"><span class="field-label">Wann?</span>
         <div class="time-row">
+          <select id="reminderDay" aria-label="Tag der Erinnerung">
+            <option value="5">Donnerstag</option><option value="6">Freitag</option><option value="7">Samstag</option>
+          </select>
           <select id="fridayTime" aria-label="Uhrzeit der Erinnerung">
             <option value="06:00">6:00 Uhr</option><option value="07:00">7:00 Uhr</option><option value="08:00">8:00 Uhr</option>
             <option value="10:00">10:00 Uhr</option><option value="12:00">12:00 Uhr</option><option value="16:00">16:00 Uhr</option>
