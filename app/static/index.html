@@ -135,7 +135,6 @@
 
     <div id="appUpdate" class="notice" hidden></div>
     <div id="memoryHints" class="memory-hints"></div>
-    <div id="activeFilters" class="active-filters" role="status" hidden></div>
     <div id="list" class="list"></div>
   </main>
   <div id="mapWrap" class="map-wrap" hidden><div id="map"></div></div>
@@ -192,7 +191,17 @@
     <fieldset>
       <legend>Erinnerung</legend>
       <label class="switch app-only"><input type="checkbox" id="setFriday">
-        <span>Freitags um 16 Uhr: Überblick, was am Wochenende los ist</span></label>
+        <span>Jeden Freitag: Überblick, was am Wochenende los ist</span></label>
+      <div class="field app-only"><span class="field-label">Uhrzeit</span>
+        <div class="time-row">
+          <select id="fridayTime" aria-label="Uhrzeit der Erinnerung">
+            <option value="06:00">6:00 Uhr</option><option value="07:00">7:00 Uhr</option><option value="08:00">8:00 Uhr</option>
+            <option value="10:00">10:00 Uhr</option><option value="12:00">12:00 Uhr</option><option value="16:00">16:00 Uhr</option>
+            <option value="18:00">18:00 Uhr</option><option value="custom">Eigene Uhrzeit …</option>
+          </select>
+          <input type="time" id="fridayCustom" aria-label="Eigene Uhrzeit" step="300" hidden>
+        </div>
+      </div>
       <button class="btn ghost app-only" type="button" id="testFriday">Probe-Nachricht jetzt zeigen</button>
       <p class="hint" id="fridayHint"></p>
     </fieldset>

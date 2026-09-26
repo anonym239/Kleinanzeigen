@@ -271,6 +271,14 @@ public class MainActivity extends Activity {
             }
         }
 
+        /** Uhrzeit der Freitags-Erinnerung (Stunde 0–23, Minute 0–59). */
+        @JavascriptInterface
+        public void setReminderTime(int hour, int minute) {
+            if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return;
+            Reminder.prefs(MainActivity.this).edit().putInt("hour", hour).putInt("minute", minute).apply();
+            Reminder.schedule(MainActivity.this);
+        }
+
         /** "on", "off" oder "blocked" (Benachrichtigungen in den Handy-Einstellungen aus). */
         @JavascriptInterface
         public String reminderStatus() {

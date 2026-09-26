@@ -335,27 +335,6 @@ function filtered() {
   return list;
 }
 
-/* Hinweis über der Liste, wenn etwas ausgefiltert ist – mit einem Tipp alles wieder zeigen */
-function activeFilterParts() {
-  const f = S.filters, parts = [];
-  if (f.source) parts.push(`Quelle: ${sourceLabel(f.source)}`);
-  if (f.q) parts.push(`Suche: „${f.q}“`);
-  if (f.cats.length) parts.push(f.cats.map((c) => S.categories[c] || c).join(", "));
-  if (f.favOnly) parts.push("nur gemerkte");
-  if (f.weekendOnly) parts.push("nur Sa & So");
-  return parts;
-}
-
-function renderActiveFilters() {
-  const el = $("#activeFilters");
-  const parts = S.view === "fav" ? [] : activeFilterParts();
-  el.hidden = !parts.length;
-  if (!parts.length) return;
-  el.innerHTML = `<span>Filter aktiv: <strong>${esc(parts.join(" · "))}</strong></span>
-    <button class="btn small" type="button" id="activeReset">Alle Termine zeigen</button>`;
-  $("#activeReset").addEventListener("click", resetFilters);
-}
-
 function activeFilterCount() {
   const f = S.filters, d = DEFAULT_FILTERS;
   let n = f.cats.length ? 1 : 0;
@@ -452,7 +431,7 @@ function groupedListHTML(list, overview) {
   }
   let html = "";
   const days = [...groups.keys()].filter(Boolean);
-  if (overview && days.length >= 2 && days.length <= 4) {
+  if (overview && days.length >= 1 && days.length <= 4) {
     html += `<nav class="day-overview" aria-label="Tage">` + days.map((d) => `
       <a class="day-tile" href="#tag-${d}">
         <span class="dt-day">${esc(parseISO(d).toLocaleDateString("de-DE", { weekday: "long" }))}</span>
@@ -521,7 +500,6 @@ function render() {
   $("#welcome").hidden = !!S.settings.home_query;
   syncControls();
   renderCats();
-  renderActiveFilters();
   renderMemoryHints();
   renderPdfBar();
   renderList(list);
@@ -958,7 +936,13 @@ function openTour(day) {
 const APK_URL = "https://github.com/anonym239/Kleinanzeigen/releases/latest/download/Flohmarkt-Finder.apk";
 const appHas = (fn) => !!(window.AndroidApp && typeof window.AndroidApp[fn] === "function");
 
+const reminderTime = () => (/^\d\d:\d\d$/.test(store.get("fridayTime", "")) ? store.get("fridayTime") : "07:00");
+
 function pushReminder() {
+  if (appHas("setReminderTime")) {
+    const [h, m] = reminderTime().split(":").map(Number);
+    try { window.AndroidApp.setReminderTime(h, m); } catch { /* ältere App */ }
+  }
   if (!appHas("setReminder")) return;
   const s = S.settings;
   const favIds = S.events.filter((e) => e.favorite).map((e) => e.id);
@@ -970,20 +954,26 @@ function pushReminder() {
 
 function checkAppUpdate() {
   const el = $("#appUpdate");
-  const old = window.FLOHMARKT_APP && !appHas("savePdf"); // neueste Funktion der App
-  const snoozed = Date.now() - store.get("updateSnooze2", 0) < 3 * 86400000;
+  const old = window.FLOHMARKT_APP && !appHas("setReminderTime"); // neueste Funktion der App
+  const snoozed = Date.now() - store.get("updateSnooze3", 0) < 3 * 86400000;
   el.hidden = !old || snoozed;
   if (el.hidden) return;
-  el.innerHTML = `<span>📲 <strong>Neue App-Version:</strong> PDF speichern, Freitags-Erinnerung fürs Wochenende, bessere Darstellung. Einfach herunterladen und über die alte App installieren – alles Gemerkte bleibt.</span>
+  el.innerHTML = `<span>📲 <strong>Neue App-Version:</strong> Uhrzeit der Freitags-Erinnerung einstellbar, PDF speichern, bessere Darstellung. Einfach herunterladen und über die alte App installieren – alles Gemerkte bleibt.</span>
     <span class="notice-acts"><button class="btn small" type="button" id="updateNow">Jetzt aktualisieren</button>
     <button class="link-btn" type="button" id="updateLater">Später</button></span>`;
   $("#updateNow").addEventListener("click", () => { if (appHas("openUrl")) window.AndroidApp.openUrl(APK_URL); else openExternal(APK_URL); });
-  $("#updateLater").addEventListener("click", () => { store.set("updateSnooze2", Date.now()); el.hidden = true; });
+  $("#updateLater").addEventListener("click", () => { store.set("updateSnooze3", Date.now()); el.hidden = true; });
 }
 
 function syncReminderSettings() {
   const inApp = !!window.FLOHMARKT_APP, ok = appHas("setReminder");
   $("#setFriday").checked = store.get("friday", true);
+  const time = reminderTime();
+  const preset = [...$("#fridayTime").options].some((o) => o.value === time);
+  $("#fridayTime").value = preset ? time : "custom";
+  $("#fridayCustom").value = time;
+  $("#fridayCustom").hidden = preset;
+  $("#fridayTime").disabled = $("#fridayCustom").disabled = !ok || !$("#setFriday").checked;
   $("#setFriday").disabled = !ok;
   $("#testFriday").disabled = !ok;
   const status = ok && appHas("reminderStatus") ? window.AndroidApp.reminderStatus() : "";
@@ -991,7 +981,7 @@ function syncReminderSettings() {
     ? "Die Freitags-Erinnerung gibt es in der Android-App."
     : !ok ? "Dafür bitte die neue App-Version installieren (Hinweis oben in der Liste)."
     : status === "blocked" ? "Benachrichtigungen sind für die App ausgeschaltet: Handy-Einstellungen → Apps → Flohmärkte → Benachrichtigungen erlauben."
-    : "Kommt jeden Freitag gegen 16 Uhr: wie viele Flohmärkte am Wochenende in deinem Umkreis sind, mit den Top-Tipps.";
+    : `Kommt jeden Freitag gegen ${time.replace(/^0/, "")} Uhr: wie viele Flohmärkte am Wochenende in deinem Umkreis sind, mit den Top-Tipps.`;
 }
 
 const APP = window.AndroidApp || null; // in der Android-App vorhanden
@@ -1277,7 +1267,8 @@ function setFiltersOpen(open) {
 }
 
 function measureTopbar() {
-  document.documentElement.style.setProperty("--topbar-h", `${$(".topbar").offsetHeight}px`);
+  // Genaue Höhe (in der App oft mit Nachkommastellen), abgerundet – sonst bleibt über der Tageszeile ein Spalt
+  document.documentElement.style.setProperty("--topbar-h", `${Math.floor($(".topbar").getBoundingClientRect().height)}px`);
 }
 
 function bind() {
@@ -1376,6 +1367,16 @@ function bind() {
     openTour(TOUR.day);
   });
   $("#setFriday").addEventListener("change", (e) => { store.set("friday", e.target.checked); pushReminder(); syncReminderSettings(); });
+  $("#fridayTime").addEventListener("change", (e) => {
+    if (e.target.value === "custom") { $("#fridayCustom").hidden = false; $("#fridayCustom").focus(); return; }
+    store.set("fridayTime", e.target.value); pushReminder(); syncReminderSettings();
+    toast(`Die Erinnerung kommt jetzt freitags um ${e.target.value} Uhr`);
+  });
+  $("#fridayCustom").addEventListener("change", (e) => {
+    if (!/^\d\d:\d\d$/.test(e.target.value)) return;
+    store.set("fridayTime", e.target.value); pushReminder(); syncReminderSettings();
+    toast(`Die Erinnerung kommt jetzt freitags um ${e.target.value} Uhr`);
+  });
   $("#testFriday").addEventListener("click", () => {
     pushReminder();
     if (appHas("testReminder")) { window.AndroidApp.testReminder(); toast("Probe-Nachricht kommt gleich (Termine werden geladen) …"); }
@@ -1455,6 +1456,7 @@ function bind() {
   });
 
   window.addEventListener("resize", () => { measureTopbar(); applyView(); });
+  if (window.ResizeObserver) new ResizeObserver(() => measureTopbar()).observe($(".topbar"));
   document.addEventListener("visibilitychange", () => { if (!document.hidden) { loadEvents().catch(() => {}); pollStatus(); } });
 }
 

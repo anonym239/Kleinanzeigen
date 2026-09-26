@@ -27,14 +27,14 @@ import java.util.Locale;
 import java.util.Set;
 
 /**
- * Freitags-Erinnerung: Jeden Freitag gegen 16 Uhr lädt die App die aktuellen Termine und meldet,
+ * Freitags-Erinnerung: Jeden Freitag zur eingestellten Uhrzeit (Standard 7 Uhr) lädt die App die aktuellen Termine und meldet,
  * wie viele Flohmärkte am Wochenende im eingestellten Umkreis sind (mit den Top-Tipps).
  * Läuft auch, wenn die App geschlossen ist; nach einem Neustart des Handys wird sie neu geplant.
  */
 public class Reminder extends BroadcastReceiver {
     static final String PREFS = "reminder";
     private static final String CHANNEL = "wochenende";
-    private static final int FRIDAY_HOUR = 16;
+    static final int DEFAULT_HOUR = 7;
     private static final String[] DATA_URLS = {
             "https://raw.githubusercontent.com/anonym239/Kleinanzeigen/live/data/events.json",
             "https://cdn.jsdelivr.net/gh/anonym239/Kleinanzeigen@live/data/events.json",
@@ -67,7 +67,7 @@ public class Reminder extends BroadcastReceiver {
         return PendingIntent.getBroadcast(c, 1, i, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
-    /** Plant den nächsten Freitag 16 Uhr (oder hebt die Planung auf, wenn ausgeschaltet). */
+    /** Plant den nächsten Freitag zur eingestellten Uhrzeit (oder hebt die Planung auf, wenn ausgeschaltet). */
     static void schedule(Context c) {
         AlarmManager am = (AlarmManager) c.getSystemService(Context.ALARM_SERVICE);
         if (am == null) return;
@@ -77,8 +77,8 @@ public class Reminder extends BroadcastReceiver {
             return;
         }
         Calendar next = Calendar.getInstance();
-        next.set(Calendar.HOUR_OF_DAY, FRIDAY_HOUR);
-        next.set(Calendar.MINUTE, 0);
+        next.set(Calendar.HOUR_OF_DAY, prefs(c).getInt("hour", DEFAULT_HOUR));
+        next.set(Calendar.MINUTE, prefs(c).getInt("minute", 0));
         next.set(Calendar.SECOND, 0);
         next.set(Calendar.MILLISECOND, 0);
         int days = (Calendar.FRIDAY - next.get(Calendar.DAY_OF_WEEK) + 7) % 7;
