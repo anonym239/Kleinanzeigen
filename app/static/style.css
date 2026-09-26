@@ -561,3 +561,4 @@ html.pdf-mode .toast { top: calc(var(--topbar-h, 120px) + 10px); bottom: auto; }
 .dt-date .wx { font-size: .85rem; }
 .tour-wx { margin: 0; }
 .tour-stop small.leg, .tour-home small.leg { display: block; color: var(--accent); font-weight: 700; }
+.wx-min { opacity: .7; font-weight: 400; }
