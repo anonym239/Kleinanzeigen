@@ -49,6 +49,8 @@ CREATE TABLE IF NOT EXISTS user_state (
 );
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS geocache (query TEXT PRIMARY KEY, lat REAL, lon REAL, name TEXT, ts REAL);
+CREATE TABLE IF NOT EXISTS ai_pages (url TEXT PRIMARY KEY, digest TEXT, items TEXT, ts REAL);
+CREATE TABLE IF NOT EXISTS ai_usage (day TEXT PRIMARY KEY, input_tokens INTEGER DEFAULT 0, output_tokens INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     source TEXT, started REAL, finished REAL, ok INTEGER, found INTEGER, message TEXT
@@ -74,7 +76,8 @@ DEFAULT_SETTINGS = {
     "detail_fetch_limit": 40,
     "extra_urls": [],          # Webseiten mit Veranstaltungskalender (schema.org/Event)
     "keep_past_days": 3,
-    "site_url": "",            # Adresse der veröffentlichten Webseite (Netlify), für die App
+    "site_url": "",
+    "claude_model": "",        # leer = Standardmodell (siehe app/ai_review.py)            # Adresse der veröffentlichten Webseite (Netlify), für die App
 }
 
 
@@ -88,8 +91,10 @@ def connect():
                 c = sqlite3.connect(path)
                 c.executescript(SCHEMA)
                 cols = {r[1] for r in c.execute("PRAGMA table_info(events)")}
-                if "relevant" not in cols:  # ältere Datenbanken nachrüsten
-                    c.execute("ALTER TABLE events ADD COLUMN relevant INTEGER DEFAULT 1")
+                for col, decl in (("relevant", "INTEGER DEFAULT 1"), ("ai_checked", "INTEGER DEFAULT 0"),
+                                  ("ai_verdict", "INTEGER"), ("ai_note", "TEXT DEFAULT ''")):
+                    if col not in cols:  # ältere Datenbanken nachrüsten
+                        c.execute(f"ALTER TABLE events ADD COLUMN {col} {decl}")
                 c.execute("PRAGMA journal_mode=WAL")
                 c.commit()
                 c.close()
@@ -303,3 +308,78 @@ def last_runs() -> list[dict]:
 def count_events() -> int:
     with connect() as c:
         return c.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+
+
+# ---------- Claude-Prüfung ----------
+
+AI_FIELDS = {"ai_checked", "ai_verdict", "ai_note", "relevant", "category", "start_date", "end_date",
+             "date_certain", "time_text", "address", "lat", "lon"}
+
+
+def events_for_ai_review(limit: int) -> list[dict]:
+    """Noch nicht geprüfte Anzeigen (Kleinanzeigen, Kieler Nachrichten, eigene Quellen), neueste zuerst.
+
+    Die Flohmarkt-Kalender liefern strukturierte Termine und werden nicht geprüft.
+    """
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    with connect() as c:
+        rows = c.execute(
+            "SELECT * FROM events WHERE ai_checked = 0 AND manual = 0 AND is_service = 0 AND relevant = 1 "
+            "AND source NOT IN ('krencky24.de', 'meine-flohmarkt-termine.de') "
+            "AND (start_date IS NULL OR COALESCE(end_date, start_date) >= ?) "
+            "ORDER BY first_seen DESC LIMIT ?",
+            (yesterday, limit),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def update_event_fields(event_id: str, values: dict) -> None:
+    values = {k: v for k, v in values.items() if k in AI_FIELDS}
+    if not values:
+        return
+    with connect() as c:
+        c.execute(f"UPDATE events SET {', '.join(k + ' = ?' for k in values)} WHERE id = ?",
+                  [*values.values(), event_id])
+
+
+def events_without_coords() -> list[dict]:
+    with connect() as c:
+        rows = c.execute("SELECT * FROM events WHERE relevant = 1 AND lat IS NULL AND manual = 0").fetchall()
+    return [dict(r) for r in rows]
+
+
+def ai_page_get(url: str, digest: str):
+    with connect() as c:
+        r = c.execute("SELECT items FROM ai_pages WHERE url = ? AND digest = ?", (url, digest)).fetchone()
+    if r is None:
+        return None
+    items = json.loads(r["items"])
+    for it in items:
+        it["start"] = date.fromisoformat(it["start"])
+        it["end"] = date.fromisoformat(it["end"])
+    return items
+
+
+def ai_page_put(url: str, digest: str, items: list[dict]) -> None:
+    data = json.dumps([{**it, "start": it["start"].isoformat(), "end": it["end"].isoformat()} for it in items])
+    with connect() as c:
+        c.execute("INSERT OR REPLACE INTO ai_pages VALUES (?, ?, ?, ?)", (url, digest, data, time.time()))
+
+
+def add_ai_usage(input_tokens: int, output_tokens: int) -> None:
+    day = date.today().isoformat()
+    with connect() as c:
+        c.execute("INSERT OR IGNORE INTO ai_usage(day) VALUES (?)", (day,))
+        c.execute("UPDATE ai_usage SET input_tokens = input_tokens + ?, output_tokens = output_tokens + ? WHERE day = ?",
+                  (input_tokens, output_tokens, day))
+
+
+def ai_summary() -> dict:
+    """Kleine Übersicht für die Einstellungen: geprüfte/aussortierte Anzeigen und Verbrauch (30 Tage)."""
+    since = (date.today() - timedelta(days=30)).isoformat()
+    with connect() as c:
+        checked = c.execute("SELECT COUNT(*) FROM events WHERE ai_checked = 1").fetchone()[0]
+        rejected = c.execute("SELECT COUNT(*) FROM events WHERE ai_checked = 1 AND ai_verdict = 0").fetchone()[0]
+        u = c.execute("SELECT COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0) FROM ai_usage WHERE day >= ?",
+                      (since,)).fetchone()
+    return {"checked": checked, "rejected": rejected, "input_tokens_30d": u[0], "output_tokens_30d": u[1]}

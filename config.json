@@ -29,5 +29,7 @@
   "app_url": "",
   "kn_enabled": true,
   "site_url": "https://anzeigen4you.netlify.app",
-  "_hinweis_site_url": "Adresse der Netlify-Seite (z.B. https://name.netlify.app) – damit die App Quellen direkt hinzufügen kann."
+  "_hinweis_site_url": "Adresse der Netlify-Seite (z.B. https://name.netlify.app) – damit die App Quellen direkt hinzufügen kann.",
+  "claude_model": "",
+  "_hinweis_claude_model": "Leer = claude-opus-5 (genaueste Prüfung). Günstiger: claude-haiku-4-5. Die Prüfung läuft nur, wenn das GitHub-Secret ANTHROPIC_API_KEY gesetzt ist."
 }

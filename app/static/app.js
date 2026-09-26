@@ -22,7 +22,7 @@ const S = {
   events: [], settings: {}, categories: {}, today: null,
   // Startansicht ist immer "Dieses Wochenende"; übrige Filter bleiben gespeichert
   filters: { ...DEFAULT_FILTERS, ...store.get(FILTER_KEY, {}), range: "weekend" },
-  view: store.get("view", "list"),
+  view: store.get("view", "list") === "map" ? "map" : "list",
   map: null, mapLayer: null, prevVisit: 0, polling: null,
 };
 
@@ -308,7 +308,9 @@ function passesBase(ev, f, skipCats = false) {
 
 function filtered() {
   const f = S.filters;
-  const list = S.events.filter((ev) => passesBase(ev, f));
+  const list = S.view === "fav"
+    ? S.events.filter((ev) => ev.favorite && !ev.hidden)
+    : S.events.filter((ev) => passesBase(ev, f));
   const byNew = (a, b) => b.first_seen - a.first_seen;
   if (f.sort === "distance") list.sort((a, b) => (a.distance_km ?? 9999) - (b.distance_km ?? 9999));
   else if (f.sort === "new") list.sort(byNew);
@@ -388,6 +390,13 @@ function cardHTML(ev) {
 
 function renderList(list) {
   const el = $("#list");
+  if (!list.length && S.view === "fav") {
+    el.innerHTML = `<div class="empty"><h2>Noch nichts gemerkt</h2>
+      <p>Tippe bei einer Anzeige auf „Merken“ – dann steht sie hier, egal an welchem Tag sie ist.</p>
+      <button class="btn primary" type="button" id="favBack">Zu allen Terminen</button></div>`;
+    $("#favBack").addEventListener("click", () => { S.view = "list"; store.set("view", "list"); render(); });
+    return;
+  }
   if (!list.length) {
     const noData = !S.events.length;
     el.innerHTML = `<div class="empty">
@@ -469,7 +478,11 @@ function render() {
   store.set(FILTER_KEY, S.filters);
   const list = filtered();
   const undated = list.filter((e) => !e.start_date).length;
-  $("#count").textContent = `${list.length} ${list.length === 1 ? "Termin" : "Termine"}${undated ? ` (davon ${undated} ohne Datum)` : ""}`;
+  const nFav = S.events.filter((e) => e.favorite && !e.hidden).length;
+  $("#favCount").textContent = nFav ? nFav : "";
+  $("#count").textContent = S.view === "fav"
+    ? `${nFav} gemerkte ${nFav === 1 ? "Anzeige" : "Anzeigen"}`
+    : `${list.length} ${list.length === 1 ? "Termin" : "Termine"}${undated ? ` (davon ${undated} ohne Datum)` : ""}`;
   $("#welcome").hidden = !!S.settings.home_query;
   syncControls();
   renderCats();
@@ -486,8 +499,10 @@ function applyView() {
   $("#layout").classList.toggle("split", split);
   const showMap = split || S.view === "map";
   $("#list").hidden = !split && S.view === "map";
+  $("#viewFav").setAttribute("aria-selected", String(S.view === "fav"));
+  document.documentElement.classList.toggle("fav-view", S.view === "fav");
   $("#mapWrap").hidden = !showMap;
-  $("#viewList").setAttribute("aria-selected", String(S.view !== "map"));
+  $("#viewList").setAttribute("aria-selected", String(S.view === "list"));
   $("#viewMap").setAttribute("aria-selected", String(S.view === "map"));
   if (showMap) {
     if (!S.map) initMap();
@@ -560,7 +575,8 @@ function openDetail(id) {
       ${ev.price ? `<dt>Preis</dt><dd>${esc(ev.price)}</dd>` : ""}
       <dt>Quelle</dt><dd>${esc(sourceLabel(ev.source))}${ev.posted_at ? `, eingestellt ${esc(parseISO(ev.posted_at).toLocaleDateString("de-DE"))}` : ""}</dd>
     </dl>
-    ${!ev.date_certain && ev.start_date ? `<p class="hint">Das Datum wurde aus einem Wochentag im Text abgeleitet. Bitte in der Anzeige prüfen.</p>` : ""}
+    ${ev.ai_checked ? `<p class="hint ai-ok">✓ Von Claude geprüft${ev.ai_note ? `: ${esc(ev.ai_note)}` : ""}</p>`
+      : !ev.date_certain && ev.start_date ? `<p class="hint">Das Datum wurde aus einem Wochentag im Text abgeleitet. Bitte in der Anzeige prüfen.</p>` : ""}
     ${ev.description ? `<p class="detail-desc">${esc(ev.description)}</p>` : ""}
     <div class="detail-actions">
       <button class="btn ${ev.favorite ? "primary" : "ghost"}" type="button" data-dact="fav">${icon("star")} ${ev.favorite ? "Gemerkt" : "Merken"}</button>
@@ -758,14 +774,29 @@ function renderSourceList() {
       : src.name === "Flohmarkt-Kalender" ? (counts["krencky24.de"] || 0) + (counts["meine-flohmarkt-termine.de"] || 0)
       : src.name === "Kieler Nachrichten" ? counts["Kieler Nachrichten"]
       : counts[src.name];
-    const state = !run ? "wartet auf ersten Suchlauf" : run.ok ? `${n || 0} Termine · zuletzt ${when(run.finished)}` : `Fehler: ${run.message}`;
+    const empty = run && run.ok && !n;
+    const state = !run ? "wartet auf ersten Suchlauf"
+      : !run.ok ? `Fehler: ${run.message}`
+      : empty ? `keine Termine gefunden (zuletzt ${when(run.finished)}) – die Seite enthält gerade keine lesbaren Termine${data.ai?.enabled ? "" : "; mit der Claude-Prüfung werden auch schwierige Seiten gelesen"}`
+      : `${n} Termine · zuletzt ${when(run.finished)}`;
     return `<div class="src-row">
-      <span class="state ${run && !run.ok ? "bad" : !run ? "wait" : ""}"></span>
+      <span class="state ${run && !run.ok ? "bad" : !run || empty ? "wait" : ""}"></span>
       <div class="src-main"><strong>${esc(src.name)}</strong>${src.builtin ? ` <span class="pill">fest eingebaut</span>` : ""}
         <small>${esc(state)}</small></div>
       ${src.builtin ? "" : `<button class="link-btn" type="button" data-remove-src="${esc(src.url)}">Entfernen</button>`}
     </div>`;
-  }).join("") + pendingSourcesHTML() || `<p class="hint">Noch keine Quellen.</p>`;
+  }).join("") + pendingSourcesHTML() + aiStatusHTML() || `<p class="hint">Noch keine Quellen.</p>`;
+}
+
+function aiStatusHTML() {
+  const ai = L$.data?.ai;
+  if (!ai) return "";
+  const run = (L$.data.runs || []).find((r) => r.source === "Claude-Prüfung");
+  const text = !ai.enabled
+    ? "nicht eingerichtet – prüft Anzeigen und liest schwierige Webseiten, sobald ein Claude-API-Key hinterlegt ist"
+    : `${ai.checked} Anzeigen geprüft, ${ai.rejected} aussortiert${run ? ` · zuletzt ${new Date(run.finished * 1000).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" })}` : ""}`;
+  return `<div class="src-row"><span class="state ${ai.enabled ? "" : "wait"}"></span>
+    <div class="src-main"><strong>Claude-Prüfung</strong> <span class="pill">KI</span><small>${esc(text)}</small></div><span></span></div>`;
 }
 
 function pendingSourcesHTML() {
@@ -882,7 +913,8 @@ function bind() {
   $("#closeFilters").addEventListener("click", () => $("#filters").classList.remove("open"));
   $("#showResults").addEventListener("click", () => { $("#filters").classList.remove("open"); window.scrollTo({ top: 0 }); });
 
-  $("#viewList").addEventListener("click", () => { S.view = "list"; store.set("view", "list"); applyView(); });
+  $("#viewList").addEventListener("click", () => { S.view = "list"; store.set("view", "list"); render(); });
+  $("#viewFav").addEventListener("click", () => { S.view = "fav"; store.set("view", "fav"); render(); window.scrollTo({ top: 0 }); });
   $("#viewMap").addEventListener("click", () => { S.view = "map"; store.set("view", "map"); applyView(); if (S.map) renderMap(filtered()); });
 
   $("#list").addEventListener("click", (e) => {

@@ -373,3 +373,15 @@ html.in-app .web-only { display: none !important; }
 .src-row .state.wait { background: var(--tag); }
 .src-main .pill { align-self: flex-start; }
 .form-error.ok { color: var(--accent); }
+
+/* Gemerkt-Ansicht */
+.view-toggle .fav-n:not(:empty) { display: inline-block; min-width: 1.4em; margin-left: 4px; padding: 0 6px; border-radius: 999px;
+  background: var(--tag); color: var(--tag-ink); font-size: .8em; }
+html.fav-view .results > .cat-chips, html.fav-view .day-overview { display: none; }
+.hint.ai-ok { color: var(--accent); }
+@media (max-width: 899px) {
+  .results-tools { width: 100%; }
+  .view-toggle { flex: 1; }
+  .view-toggle button { flex: 1; padding: 8px 10px; }
+}
+.view-toggle button { white-space: nowrap; }

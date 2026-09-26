@@ -91,6 +91,15 @@ Fest eingebaut über die **offiziellen RSS-Feeds** (Kiel, Plön, Hauptfeed) – 
 Termine (z.B. aus „Flohmarkt-Termine am Wochenende …“), keine Nachrichten oder Berichte. Die Webseite kn-online.de
 selbst sperrt automatische Abrufe; Kleinanzeigen aus der gedruckten Zeitung sind dort nicht öffentlich abrufbar.
 
+### Claude-Prüfung (optional, kostenpflichtig)
+
+Mit einem Claude-API-Key prüft Claude bei jedem Suchlauf jede **neue** Anzeige genau einmal (echte Veranstaltung?
+Datum, Uhrzeit, Adresse richtig?) und liest Termine aus Webseiten, bei denen der einfache Leser nichts findet
+(eine Seite wird nur neu gelesen, wenn sie sich geändert hat). Einrichtung: API-Key unter https://platform.claude.com
+erstellen → auf GitHub *Settings → Secrets and variables → Actions → New repository secret*, Name `ANTHROPIC_API_KEY`.
+Modell in `config.json` bei `claude_model` (leer = `claude-opus-5`, günstiger: `claude-haiku-4-5`).
+Unter Einstellungen → Quellen steht, wie viele Anzeigen geprüft und aussortiert wurden.
+
 ### Android-App
 
 Download: https://github.com/anonym239/Kleinanzeigen/releases/latest/download/Flohmarkt-Finder.apk (ab Android 8).

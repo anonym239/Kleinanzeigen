@@ -36,6 +36,9 @@ jobs:
           restore-keys: flohmarkt-db-
 
       - name: Termine suchen und Webseite bauen
+        env:
+          # Optional: Claude prüft neue Anzeigen und liest schwierige Webseiten (Secret in den Repo-Einstellungen)
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python -m app.build_site --config config.json --out site
 
       - uses: actions/cache/save@v4

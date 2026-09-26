@@ -7,11 +7,11 @@ import threading
 import time
 from datetime import date, timedelta
 
-from . import db, geo
+from . import ai_review, db, geo
 from .classify import _EVENT_WORDS, classify, is_event_ad, is_service_ad
 from .dateparse import parse_event_date, parse_time_text
 from .sources import calendars, events_page, kleinanzeigen, kn
-from .sources.base import SourceError, make_client
+from .sources.base import SourceError, fetch, make_client
 
 log = logging.getLogger(__name__)
 
@@ -90,6 +90,11 @@ def _run_kleinanzeigen(settings: dict) -> tuple[int, int]:
                 # Mit den aktuellen Regeln neu bewerten (Regeln können sich seit dem letzten Lauf geändert haben)
                 ev["relevant"] = int(is_event_ad(ev["title"], ev["description"], ev["price"],
                                                  bool(ev["start_date"] and ev["date_certain"]), bool(ev["time_text"])))
+            if existing and existing.get("ai_checked"):
+                # Claude hat die Anzeige schon geprüft: Urteil und Korrekturen behalten
+                for k in ("start_date", "end_date", "date_certain", "time_text", "address", "lat", "lon", "category"):
+                    ev[k] = existing[k]
+                ev["relevant"] = int(existing["ai_verdict"] if existing["ai_verdict"] is not None else ev["relevant"])
             if ev["relevant"]:
                 _geocode_event(ev)  # Einzelartikel werden nur gemerkt, nicht verortet
             found += ev["relevant"]
@@ -105,6 +110,8 @@ def _store_web_item(it: dict, source: str, ev_id: str, settings: dict) -> tuple[
     if it["end"] < today - timedelta(days=1) or it["start"] > horizon:
         return 0, 0
     category = classify(it["title"], it["description"])
+    if category == "sonstiges" and it.get("category_hint") not in (None, "sonstiges"):
+        category = it["category_hint"]  # von Claude eingeordnet
     if category == "sonstiges":
         return 0, 0  # z.B. Streetfood-Festival, Weinfest, Feierabendmarkt
     text = f"{it['title']} {it['description']}"
@@ -146,10 +153,22 @@ def _store_web_item(it: dict, source: str, ev_id: str, settings: dict) -> tuple[
 def _run_url(url: str, settings: dict) -> tuple[int, int]:
     found = new = 0
     with make_client() as client:
-        items = events_page.scrape_url(client, url)
+        html = fetch(client, url)
+    if "BEGIN:VCALENDAR" in html[:2000]:
+        items = events_page.parse_ics(html, url)
+    else:
+        items = events_page.parse_html(html, url) or events_page.parse_text_blocks(html, url)
+    from_ai = False
+    if not items and ai_review.enabled():
+        # Kein festes Muster erkennbar: Claude liest die Seite (nur neu, wenn sie sich geändert hat)
+        items = ai_review.extract_events_from_page(settings, url, html) or []
+        from_ai = True
     name = events_page.source_name(url)
     for it in items:
-        f, n = _store_web_item(it, name, f"web:{name}:{it['ext_id']}", settings)
+        ev_id = f"web:{name}:{it['ext_id']}"
+        f, n = _store_web_item(it, name, ev_id, settings)
+        if f and from_ai:
+            db.update_event_fields(ev_id, {"ai_checked": 1, "ai_verdict": 1, "ai_note": "von Claude aus der Seite gelesen"})
         found, new = found + f, new + n
     return found, new
 
@@ -233,6 +252,20 @@ def run_all() -> bool:
             except Exception as e:  # noqa: BLE001
                 log.warning("Quelle %s fehlgeschlagen: %s", url, e)
                 db.log_run(events_page.source_name(url), t0, False, 0, str(e))
+        if ai_review.enabled():
+            t0 = time.time()
+            state["message"] = "Claude prüft neue Anzeigen …"
+            try:
+                st = ai_review.review_new_events(settings)
+                for ev in db.events_without_coords():  # korrigierte Adressen neu verorten
+                    _geocode_event(ev)
+                    if ev.get("lat") is not None:
+                        db.update_event_fields(ev["id"], {"lat": ev["lat"], "lon": ev["lon"]})
+                db.log_run("Claude-Prüfung", t0, True, st["checked"],
+                           f"{st['checked']} geprüft, {st['rejected']} aussortiert, {st['corrected']} Angaben korrigiert")
+            except Exception as e:  # noqa: BLE001
+                log.exception("Claude-Prüfung fehlgeschlagen")
+                db.log_run("Claude-Prüfung", t0, False, 0, str(e))
         removed = db.cleanup(int(settings.get("keep_past_days") or 3))
         state["message"] = f"Fertig ({removed} alte Einträge entfernt)"
         return True

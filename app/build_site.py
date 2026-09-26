@@ -15,7 +15,7 @@ import shutil
 import time
 from pathlib import Path
 
-from . import db, geo, scraper
+from . import ai_review, db, geo, scraper
 from .classify import CATEGORY_LABELS
 
 log = logging.getLogger("build_site")
@@ -60,6 +60,7 @@ def apply_config(cfg: dict) -> dict:
         "detail_fetch_limit": int(cfg.get("detail_fetch_limit", 80)),
         "extra_urls": list(cfg.get("extra_urls") or []),
         "site_url": str(cfg.get("site_url") or cfg.get("app_url") or "").strip().rstrip("/"),
+        "claude_model": str(cfg.get("claude_model") or "").strip(),
     }
     previous = db.get_settings()
     if (previous.get("home_query"), float(previous.get("radius_km") or 0)) != (values["home_query"], values["radius_km"]):
@@ -93,7 +94,7 @@ def source_list(settings: dict) -> list[dict]:
 def current_runs(settings: dict) -> list[dict]:
     """Nur die Läufe der aktuell eingestellten Quellen (alte, entfernte Quellen nicht mehr anzeigen)."""
     from .sources.events_page import source_name
-    names = {"kleinanzeigen", "Flohmarkt-Kalender", "Kieler Nachrichten"}
+    names = {"kleinanzeigen", "Flohmarkt-Kalender", "Kieler Nachrichten", "Claude-Prüfung"}
     names |= {source_name(u) for u in settings.get("extra_urls") or []}
     return [r for r in db.last_runs() if r["source"] in names]
 
@@ -117,7 +118,7 @@ def export(out: Path, settings: dict) -> int:
 
     keep = ("id", "source", "title", "description", "url", "image", "category", "start_date", "end_date",
             "date_certain", "time_text", "location", "address", "lat", "lon", "price", "is_service",
-            "posted_at", "first_seen")
+            "posted_at", "first_seen", "ai_checked", "ai_note")
     events = []
     home = (settings.get("home_lat"), settings.get("home_lon"))
     radius = float(settings.get("radius_km") or 50)
@@ -131,6 +132,7 @@ def export(out: Path, settings: dict) -> int:
         item["description"] = (item["description"] or "")[:1500]
         item["date_certain"] = bool(item["date_certain"])
         item["is_service"] = bool(item["is_service"])
+        item["ai_checked"] = bool(item["ai_checked"])
         events.append(item)
     data = {
         "generated_at": time.time(),
@@ -139,6 +141,7 @@ def export(out: Path, settings: dict) -> int:
         "categories": CATEGORY_LABELS,
         "runs": current_runs(settings),
         "sources": source_list(settings),
+        "ai": {**db.ai_summary(), "enabled": ai_review.enabled(), "model": settings.get("claude_model") or ai_review.DEFAULT_MODEL},
         "site_url": settings.get("site_url") or "",
         "events": events,
     }
