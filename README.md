@@ -13,6 +13,10 @@ Die App läuft auf dem eigenen Homeserver und ist auf dem Handy und am PC gut be
 - **Firmen-Werbung ausblenden**: Anzeigen von Entrümpelungsfirmen, Ankäufern und Gesuchen werden erkannt und standardmäßig versteckt
 - **Liste nach Tagen sortiert** oder **Karte** (OpenStreetMap). Auf großen Bildschirmen stehen Liste und Karte nebeneinander
 - **Merken** (Favoriten), **Ausblenden**, **eigene Notizen** zu jedem Termin
+- **Schon besucht** mit 1–5 Sternen, **jährliche Märkte vormerken** (Hinweis, sobald der nächste Termin auftaucht),
+  Hinweis auf **vorbei gemerkte Termine** zum Bewerten und Aufräumen
+- **Tour planen**: gemerkte Termine eines Tages in der kürzesten Reihenfolge als Route in Google Maps
+- **Freitags-Erinnerung** (Android-App): jeden Freitag gegen 16 Uhr, wie viele Flohmärkte am Wochenende im Umkreis sind
 - **Route** in Google Maps, **In den Kalender** (.ics), **Teilen** (z.B. per WhatsApp)
 - **Kalender-Abo** aller gemerkten Termine (Adresse steht in den Einstellungen)
 - **Selbst Termine eintragen**, z.B. aus der Zeitung oder vom Aushang

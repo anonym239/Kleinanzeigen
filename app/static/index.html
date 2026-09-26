@@ -129,6 +129,8 @@
       <p class="form-error" id="welcomeError" hidden></p>
     </section>
 
+    <div id="appUpdate" class="notice" hidden></div>
+    <div id="memoryHints" class="memory-hints"></div>
     <div id="activeFilters" class="active-filters" role="status" hidden></div>
     <div id="list" class="list"></div>
   </main>
@@ -181,6 +183,14 @@
           <button type="button" data-theme-set="dark">Dunkel</button>
         </div>
       </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Erinnerung</legend>
+      <label class="switch app-only"><input type="checkbox" id="setFriday">
+        <span>Freitags um 16 Uhr: Überblick, was am Wochenende los ist</span></label>
+      <button class="btn ghost app-only" type="button" id="testFriday">Probe-Nachricht jetzt zeigen</button>
+      <p class="hint" id="fridayHint"></p>
     </fieldset>
 
     <fieldset class="server-only">
@@ -261,6 +271,11 @@
       <button class="btn primary" type="submit">Speichern</button>
     </div>
   </form>
+</dialog>
+
+<!-- Wochenend-Tour -->
+<dialog id="tourDialog" class="sheet">
+  <div class="sheet-inner" id="tourBody"></div>
 </dialog>
 
 <div class="toast" id="toast" role="status" hidden></div>

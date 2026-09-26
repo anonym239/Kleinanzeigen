@@ -6,6 +6,10 @@ import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
+import android.Manifest;
+import android.app.NotificationManager;
+import android.content.pm.PackageManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.provider.CalendarContract;
 import android.webkit.JavascriptInterface;
@@ -69,7 +73,9 @@ public class MainActivity extends Activity {
         ws.setDatabaseEnabled(true);
         ws.setSupportMultipleWindows(false);    // target=_blank im selben Fenster -> wird unten abgefangen
         ws.setAllowFileAccess(false);
-        ws.setTextZoom(100);
+        // Schriftgröße des Handys übernehmen wie andere Apps (begrenzt, damit das Layout ruhig bleibt)
+        float scale = getResources().getConfiguration().fontScale;
+        ws.setTextZoom(Math.round(Math.max(0.85f, Math.min(1.3f, scale)) * 100));
 
         webView.addJavascriptInterface(new Bridge(), "AndroidApp");
         webView.setWebChromeClient(new android.webkit.WebChromeClient()); // Dialoge (z.B. PIN-Abfrage) erlauben
@@ -101,6 +107,7 @@ public class MainActivity extends Activity {
         });
 
         setContentView(webView);
+        Reminder.schedule(this); // Freitags-Erinnerung (falls eingeschaltet)
         if (savedInstanceState != null) {
             webView.restoreState(savedInstanceState);
         } else {
@@ -235,6 +242,60 @@ public class MainActivity extends Activity {
                     Toast.makeText(MainActivity.this, "Keine Kalender-App gefunden", Toast.LENGTH_SHORT).show();
                 }
             });
+        }
+
+        /** Einstellungen der Freitags-Erinnerung aus der Seite übernehmen. */
+        @JavascriptInterface
+        public void setReminder(boolean enabled, double lat, double lon, double radiusKm, String favIdsJson) {
+            android.content.SharedPreferences p = Reminder.prefs(MainActivity.this);
+            p.edit().putBoolean("enabled", enabled)
+                    .putLong("lat", Double.doubleToRawLongBits(lat))
+                    .putLong("lon", Double.doubleToRawLongBits(lon))
+                    .putLong("radius", Double.doubleToRawLongBits(radiusKm))
+                    .putString("favs", favIdsJson == null ? "[]" : favIdsJson)
+                    .apply();
+            Reminder.schedule(MainActivity.this);
+            // Ab Android 13 muss man Benachrichtigungen einmal erlauben
+            if (enabled && Build.VERSION.SDK_INT >= 33 && !p.getBoolean("asked", false)
+                    && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                p.edit().putBoolean("asked", true).apply();
+                runOnUiThread(() -> requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 5));
+            }
+        }
+
+        /** "on", "off" oder "blocked" (Benachrichtigungen in den Handy-Einstellungen aus). */
+        @JavascriptInterface
+        public String reminderStatus() {
+            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            if (nm != null && !nm.areNotificationsEnabled()) return "blocked";
+            return Reminder.prefs(MainActivity.this).getBoolean("enabled", true) ? "on" : "off";
+        }
+
+        /** Probe: die Freitags-Nachricht sofort zeigen. */
+        @JavascriptInterface
+        public void testReminder() {
+            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            if (nm != null && !nm.areNotificationsEnabled()) {
+                if (Build.VERSION.SDK_INT >= 33) {
+                    runOnUiThread(() -> requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 5));
+                } else {
+                    runOnUiThread(() -> Toast.makeText(MainActivity.this,
+                            "Benachrichtigungen sind für die App ausgeschaltet (Handy-Einstellungen → Apps → Flohmärkte)",
+                            Toast.LENGTH_LONG).show());
+                }
+                return;
+            }
+            new Thread(() -> Reminder.notifyWeekend(getApplicationContext())).start();
+        }
+
+        @SuppressWarnings("deprecation")
+        @JavascriptInterface
+        public int appVersion() {
+            try {
+                return getPackageManager().getPackageInfo(getPackageName(), 0).versionCode;
+            } catch (PackageManager.NameNotFoundException e) {
+                return 0;
+            }
         }
 
         @JavascriptInterface
