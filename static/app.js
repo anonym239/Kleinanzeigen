@@ -391,19 +391,22 @@ function isDupe(a, b) {
   const wa = dupeWords(a), wb = dupeWords(b);
   if (!wa.size || !wb.size) return false;
   const shared = [...wa].filter((w) => wb.has(w)).length;
+  // Ohne bekannten Ort nur fast gleiche Titel ("IKEA VOS HH-Altona" ist nicht "IKEA VOS HH-Schnelsen")
+  if (a.lat == null) return shared / new Set([...wa, ...wb]).size >= 0.75;
   return shared >= 1 && shared / Math.min(wa.size, wb.size) >= 0.5;
 }
 const dupeScore = (e) => (e.favorite ? 100 : 0) + (isTop(e) ? 10 : 0) + (e.time_text ? 4 : 0) + (e.image ? 2 : 0) +
   (e.ai_checked ? 1 : 0) + Math.min(3, (e.description || "").length / 300);
-function groupDupes(list) {
+function groupDupes(list, mark = true) {
   const groups = [], byDay = new Map();
   for (const ev of list) {
-    ev._dupes = null;
+    if (mark) ev._dupes = null;
     const same = byDay.get(ev.start_date) || [];
     const g = ev.start_date ? same.find((grp) => grp.some((m) => isDupe(m, ev))) : null;
     if (g) g.push(ev);
     else { const ng = [ev]; groups.push(ng); same.push(ng); byDay.set(ev.start_date, same); }
   }
+  if (!mark) return groups;
   return groups.map((g) => {
     if (g.length === 1) return g[0];
     const rep = [...g].sort((a, b) => dupeScore(b) - dupeScore(a))[0];
@@ -583,7 +586,7 @@ function syncControls() {
     days: `Nächste ${S.settings.days_ahead || 14} Tage`, all: "Alle" };
   $$("#rangeBar button").forEach((b) => {
     const r = b.dataset.range;
-    const n = groupDupes(S.events.filter((ev) => ev.start_date && passesBase(ev, { ...f, range: r, undated: false }))).length;
+    const n = groupDupes(S.events.filter((ev) => ev.start_date && passesBase(ev, { ...f, range: r, undated: false })), false).length;
     b.setAttribute("aria-pressed", String(r === f.range));
     b.innerHTML = `${labels[r]} <span class="rn">${n}</span>`;
   });
@@ -1366,10 +1369,11 @@ function showSourceMsg(text, isError = false) {
   el.hidden = false;
 }
 
-async function changeSource(action, url) {
+async function changeSource(action, url, clicked) {
   const api = sourceApiUrl();
   const btn = $("#addSource");
-  btn.disabled = true; btn.textContent = action === "add" ? "Wird hinzugefügt …" : "Wird entfernt …";
+  btn.disabled = true; btn.textContent = action === "add" ? "Wird hinzugefügt …" : "Quelle hinzufügen";
+  if (clicked) { clicked.disabled = true; clicked.textContent = "Wird entfernt …"; }
   try {
     if (!api) throw Object.assign(new Error("nicht eingerichtet"), { code: "no_api" });
     const r = await fetch(api, {
@@ -1385,10 +1389,15 @@ async function changeSource(action, url) {
     if (r.status === 404 || j.code === "no_token") throw Object.assign(new Error(j.message || "nicht eingerichtet"), { code: "no_api" });
     if (!r.ok || !j.ok) throw new Error(j.message || `Fehler ${r.status}`);
     showSourceMsg(j.message);
-    $("#newSource").value = "";
+    toast(j.message, 6000);
+    if (action === "add") $("#newSource").value = "";
     const pending = store.get("pendingSources", []);
     if (j.changed && action === "add") store.set("pendingSources", [...pending, { url, at: Date.now() }]);
-    if (j.changed && action === "remove") store.set("pendingSources", pending.filter((p) => p.url !== url));
+    if (action === "remove") {
+      store.set("pendingSources", pending.filter((p) => p.url !== url));
+      // sofort als "wird entfernt" zeigen – aus der Liste verschwindet sie mit dem nächsten Suchlauf
+      store.set("pendingRemovals", [...store.get("pendingRemovals", []).filter((p) => p.url !== url), { url, at: Date.now() }]);
+    }
     renderSourceList();
   } catch (e) {
     if (e.code === "no_api") {
@@ -1397,10 +1406,21 @@ async function changeSource(action, url) {
       sourceIssue(action, url);
     } else {
       showSourceMsg(e.message || "Das hat nicht geklappt. Bitte später erneut versuchen.", true);
+      toast(e.message || "Das hat nicht geklappt. Bitte später erneut versuchen.", 7000);
+      if (clicked) { clicked.disabled = false; clicked.textContent = "Entfernen"; delete clicked.dataset.confirm; }
     }
   } finally {
     btn.disabled = false; btn.textContent = "Quelle hinzufügen";
   }
+}
+
+/* Quellen-Name in der Liste -> Quellen-Kennung der Termine */
+function sourceKeys(name) {
+  return name === "Kleinanzeigen" ? ["kleinanzeigen"] : name === "Flohmarkt-Kalender" ? ["krencky24.de", "meine-flohmarkt-termine.de"] : [name];
+}
+/* Wer eine Quelle auswählt, will alle ihre Termine sehen: jeder Zeitraum, auch ohne genauen Ort */
+function sourceFilter(source) {
+  return { ...DEFAULT_FILTERS, source, range: "all", noLocation: true, radius: S.filters.radius };
 }
 
 function renderSourceList() {
@@ -1409,24 +1429,30 @@ function renderSourceList() {
   const when = (ts) => ts ? new Date(ts * 1000).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" }) : "";
   const runFor = (src) => (data.runs || []).find((r) =>
     r.source === src.name || (src.name === "Kleinanzeigen" && r.source === "kleinanzeigen"));
-  const counts = {};
-  for (const e of data.events) counts[e.source] = (counts[e.source] || 0) + 1;
+  const removing = store.get("pendingRemovals", []).filter((p) => Date.now() - p.at < 86400000 &&
+    (data.sources || []).some((s) => s.url === p.url));
+  store.set("pendingRemovals", removing);
   $("#sourceList").innerHTML = (data.sources || []).map((src) => {
     const run = runFor(src);
-    const n = src.name === "Kleinanzeigen" ? counts.kleinanzeigen
-      : src.name === "Flohmarkt-Kalender" ? (counts["krencky24.de"] || 0) + (counts["meine-flohmarkt-termine.de"] || 0)
-      : src.name === "Kieler Nachrichten" ? counts["Kieler Nachrichten"]
-      : counts[src.name];
+    const keys = sourceKeys(src.name);
+    const mine = S.events.filter((e) => keys.includes(e.source) && passesBase(e, sourceFilter(e.source)));
+    const n = groupDupes(mine, false).length; // wie im Filter: doppelte Einträge zählen einmal
+    const noPos = groupDupes(mine.filter((e) => e.lat == null), false).length;
+    if (removing.some((p) => p.url === src.url)) {
+      return `<div class="src-row"><span class="state wait"></span>
+        <div class="src-main"><strong>${esc(src.name)}</strong><small>wird entfernt – verschwindet mit dem nächsten Suchlauf (ca. 10 Minuten)</small></div><span></span></div>`;
+    }
     const empty = run && run.ok && !n;
     const state = !run ? "wartet auf ersten Suchlauf"
       : !run.ok ? `Fehler: ${run.message}`
       : empty ? `keine Termine gefunden (zuletzt ${when(run.finished)}) – die Seite enthält gerade keine lesbaren Termine${data.ai?.enabled ? "" : "; mit der Claude-Prüfung werden auch schwierige Seiten gelesen"}`
-      : `${n} Termine · zuletzt ${when(run.finished)}`;
+      : `${n} Termine${noPos ? ` (davon ${noPos} ohne genauen Ort)` : ""} · zuletzt ${when(run.finished)}`;
     return `<div class="src-row">
       <span class="state ${run && !run.ok ? "bad" : !run || empty ? "wait" : ""}"></span>
       <div class="src-main"><strong>${esc(src.name)}</strong>${src.builtin ? ` <span class="pill">fest eingebaut</span>` : ""}
         <small>${esc(state)}</small></div>
-      ${src.builtin ? "" : `<button class="link-btn" type="button" data-remove-src="${esc(src.url)}">Entfernen</button>`}
+      <span class="src-acts">${n ? `<button class="link-btn" type="button" data-show-src="${esc(keys[0])}">Ansehen</button>` : ""}
+      ${src.builtin ? "" : `<button class="link-btn danger" type="button" data-remove-src="${esc(src.url)}">Entfernen</button>`}</span>
     </div>`;
   }).join("") + pendingSourcesHTML() + aiStatusHTML() || `<p class="hint">Noch keine Quellen.</p>`;
 }
@@ -1578,7 +1604,11 @@ function bind() {
   for (const k of ["weekendOnly", "favOnly", "undated", "noLocation", "services", "showHidden"]) {
     $("#" + k).addEventListener("change", (e) => { S.filters[k] = e.target.checked; render(); });
   }
-  $("#source")?.addEventListener("change", (e) => { S.filters.source = e.target.value; render(); });
+  $("#source")?.addEventListener("change", (e) => {
+    S.filters.source = e.target.value;
+    if (e.target.value) { S.filters.range = "all"; S.filters.noLocation = true; } // alle Termine dieser Quelle zeigen
+    render();
+  });
   $("#sort")?.addEventListener("change", (e) => { S.filters.sort = e.target.value; render(); });
   $("#resetFilters")?.addEventListener("click", resetFilters);
 
@@ -1731,10 +1761,16 @@ function bind() {
     await changeSource("add", url);
   });
   $("#sourceList")?.addEventListener("click", (e) => {
+    const show = e.target.closest("[data-show-src]");
+    if (show) {
+      S.filters = sourceFilter(show.dataset.showSrc);
+      S.view = "list"; $("#settings").close(); render(); window.scrollTo({ top: 0 });
+      return;
+    }
     const b = e.target.closest("[data-remove-src]");
     if (!b) return;
-    if (b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.textContent = "Wirklich entfernen?"; return; }
-    changeSource("remove", b.dataset.removeSrc);
+    if (b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.textContent = "Wirklich entfernen? Nochmal tippen"; return; }
+    changeSource("remove", b.dataset.removeSrc, b);
   });
   $("#addBtn")?.addEventListener("click", openAdd);
   $("#addForm")?.addEventListener("submit", submitAdd);

@@ -563,3 +563,8 @@ html.pdf-mode .toast { top: calc(var(--topbar-h, 120px) + 10px); bottom: auto; }
 .data-age { margin: 0; font-size: .82rem; color: var(--ink-soft); }
 .data-age:empty { display: none; }
 .data-age.old { color: var(--danger); font-weight: 700; }
+
+/* Quellenliste: Ansehen / Entfernen */
+.src-acts { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.link-btn.danger { color: var(--danger); }
+.link-btn:disabled { opacity: .6; cursor: default; }
