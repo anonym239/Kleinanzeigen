@@ -8,8 +8,32 @@ const store = {
   get(key, fallback) {
     try { const v = localStorage.getItem(key); return v === null ? fallback : JSON.parse(v); } catch { return fallback; }
   },
-  set(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* egal */ } },
+  set(key, value) {
+    const json = JSON.stringify(value), at = Date.now();
+    try { localStorage.setItem(key, json); localStorage.setItem("__at", String(at)); } catch { /* egal */ }
+    // In der Android-App zusätzlich sicher im Handy speichern (falls Android die App im Hintergrund beendet)
+    try { if (window.AndroidApp && typeof window.AndroidApp.backupSet === "function") window.AndroidApp.backupSet(key, json, at); } catch { /* egal */ }
+  },
 };
+
+/* Beim Start: war die Sicherung in der App neuer als der Browser-Speicher? Dann zurückholen. */
+(function restoreBackup() {
+  try {
+    if (!window.AndroidApp || typeof window.AndroidApp.backupGetAll !== "function") return;
+    const b = JSON.parse(window.AndroidApp.backupGetAll() || "{}");
+    const local = Number(localStorage.getItem("__at") || 0);
+    if (!b.__at || b.__at <= local) {
+      // Browser-Speicher ist aktuell: einmalig komplett sichern (z.B. nach dem Update auf diese Version)
+      if (!b.__at) for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k !== "__at") window.AndroidApp.backupSet(k, localStorage.getItem(k), local || Date.now());
+      }
+      return;
+    }
+    for (const [k, v] of Object.entries(b)) if (k !== "__at" && typeof v === "string") localStorage.setItem(k, v);
+    localStorage.setItem("__at", String(b.__at));
+  } catch { /* egal */ }
+})();
 
 const DEFAULT_FILTERS = {
   range: "weekend", cats: [], q: "", radius: null, weekendOnly: false, favOnly: false,
@@ -173,11 +197,28 @@ function localSettings() {
 
 function manualEvents() { return store.get("manualEvents", []); }
 
+/* Merken/Ausblenden/Notizen je Termin. Früher wurden die IDs versehentlich kodiert gespeichert ("ka%3A123") –
+   die werden hier einmalig zurückgeholt, damit nichts Gemerktes verloren geht. */
+function eventStates() {
+  const states = store.get("eventState", {});
+  let fixed = false;
+  for (const k of Object.keys(states)) {
+    if (!k.includes("%")) continue;
+    let real = k;
+    try { real = decodeURIComponent(k); } catch { continue; }
+    states[real] = { ...states[k], ...(states[real] || {}) };
+    delete states[k]; fixed = true;
+  }
+  if (fixed) store.set("eventState", states);
+  return states;
+}
+
 async function localApi(path, opts) {
   const method = (opts.method || "GET").toUpperCase();
   const body = opts.body ? JSON.parse(opts.body) : {};
-  const states = store.get("eventState", {});
-  const m = path.match(/^api\/events\/(.+?)(\/state)?$/);
+  const states = eventStates();
+  const m0 = path.match(/^api\/events\/(.+?)(\/state)?$/);
+  const m = m0 && [m0[0], decodeURIComponent(m0[1]), m0[2]]; // IDs kommen URL-kodiert ("ka%3A123" -> "ka:123")
 
   if (path === "api/settings" && method === "GET") { await loadStaticData(); return localSettings(); }
   if (path === "api/settings" && method === "PUT") {
@@ -390,6 +431,7 @@ function cardHTML(ev) {
     `<span class="pill cat">${catIcon(k, "sm")}${esc(ev.category_label)}</span>`,
     isNew(ev) ? `<span class="pill new">NEU</span>` : "",
     memoryPills(ev),
+    ev.gone ? `<span class="pill warn">Anzeige nicht mehr online</span>` : "",
     ev.is_service ? `<span class="pill warn">Firma/Werbung</span>` : "",
     `<span class="pill src">${ev.source === "kleinanzeigen" ? "Privat · Kleinanzeigen" : ev.manual ? "Eigener Eintrag"
       : ev.source === "Kieler Nachrichten" ? "Kieler Nachrichten"
@@ -648,6 +690,10 @@ async function setState(ev, patch, rerender = true) {
   try {
     await api(`/api/events/${encodeURIComponent(ev.id)}/state`, { method: "PATCH", body: JSON.stringify(patch) });
     Object.assign(ev, patch);
+    if (ev.gone && patch.favorite === false) { // selbst entmerkt: jetzt wirklich weg
+      S.events = S.events.filter((x) => x !== ev);
+      const sn = favSnaps(); delete sn[ev.id]; store.set("favSnap", sn);
+    }
     if (patch.favorite !== undefined) { syncFavSnaps(); pushReminder(); }
     if (rerender) render();
     if (patch.note !== undefined) toast("Notiz gespeichert");
@@ -740,6 +786,29 @@ function yearlyStatus(rec) {
   if (toISO(guess) < S.today) guess = new Date(today.getFullYear() + 1, last.getMonth(), last.getDate());
   if (toISO(guess) <= rec.start_date) guess = new Date(last.getFullYear() + 1, last.getMonth(), last.getDate());
   return { guess: toISO(guess), soon: dayDiff(S.today, toISO(guess)) <= 30 };
+}
+
+/* Gemerkte Termine bleiben, bis man sie selbst entmerkt – auch wenn die Anzeige aus den Daten verschwindet
+   (gelöscht, aussortiert oder unter anderer Quelle). Taucht derselbe Markt am selben Tag wieder auf, geht das
+   Merken automatisch auf die neue Anzeige über. */
+function addKeptFavorites() {
+  const snaps = favSnaps(), byId = new Set(S.events.map((e) => e.id));
+  const states = eventStates();
+  const s = S.settings;
+  for (const sn of Object.values(snaps)) {
+    if (byId.has(sn.id) || !sn.start_date) continue;
+    const twin = S.events.find((e) => e.start_date === sn.start_date && sameMarket(sn, e));
+    if (twin) {
+      if (!twin.favorite) { twin.favorite = true; setState(twin, { favorite: true }, false); }
+      delete snaps[sn.id];
+      continue;
+    }
+    const dist = s.home_lat != null && sn.lat != null ? Math.round(haversine(s.home_lat, s.home_lon, sn.lat, sn.lon) * 10) / 10 : null;
+    S.events.push({ description: "", image: "", date_certain: true, first_seen: 0, is_service: false, price: "", ...sn,
+      favorite: true, hidden: false, note: states[sn.id]?.note || "", distance_km: dist, gone: true,
+      category_label: sn.category_label || S.categories[sn.category] || "Sonstiges" });
+  }
+  store.set("favSnap", snaps);
 }
 
 function syncFavSnaps() {
@@ -971,15 +1040,15 @@ function pushReminder() {
 function checkAppUpdate() {
   const el = $("#appUpdate");
   if (!el) return; // Seite und Programm kurzzeitig unterschiedlich alt (Zwischenspeicher)
-  const old = window.FLOHMARKT_APP && !appHas("hasLocation"); // neueste Funktion der App
-  const snoozed = Date.now() - store.get("updateSnooze5", 0) < 3 * 86400000;
+  const old = window.FLOHMARKT_APP && !appHas("backupSet"); // neueste Funktion der App
+  const snoozed = Date.now() - store.get("updateSnooze6", 0) < 3 * 86400000;
   el.hidden = !old || snoozed;
   if (el.hidden) return;
-  el.innerHTML = `<span>📲 <strong>Neue App-Version:</strong> genauer Standort per GPS, Tag und Uhrzeit der Erinnerung einstellbar, PDF speichern, bessere Darstellung. Einfach herunterladen und über die alte App installieren – alles Gemerkte bleibt.</span>
+  el.innerHTML = `<span>📲 <strong>Neue App-Version:</strong> Gemerktes wird zusätzlich sicher im Handy gespeichert, genauer Standort per GPS, PDF speichern, bessere Darstellung. Einfach herunterladen und über die alte App installieren – alles Gemerkte bleibt.</span>
     <span class="notice-acts"><button class="btn small" type="button" id="updateNow">Jetzt aktualisieren</button>
     <button class="link-btn" type="button" id="updateLater">Später</button></span>`;
   $("#updateNow")?.addEventListener("click", () => { if (appHas("openUrl")) window.AndroidApp.openUrl(APK_URL); else openExternal(APK_URL); });
-  $("#updateLater")?.addEventListener("click", () => { store.set("updateSnooze5", Date.now()); el.hidden = true; });
+  $("#updateLater")?.addEventListener("click", () => { store.set("updateSnooze6", Date.now()); el.hidden = true; });
 }
 
 function syncReminderSettings() {
@@ -1337,6 +1406,7 @@ async function loadEvents() {
   }
   const data = await api("/api/events");
   S.events = data.events; S.categories = data.categories; S.today = data.today;
+  addKeptFavorites();
   syncFavSnaps();
   pushReminder();
   checkAppUpdate();

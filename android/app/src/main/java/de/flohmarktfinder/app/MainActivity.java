@@ -336,6 +336,27 @@ public class MainActivity extends Activity {
             Reminder.schedule(MainActivity.this);
         }
 
+        /** Sicherung des Browser-Speichers (Gemerktes, Notizen, Einstellungen) im Handy. */
+        @JavascriptInterface
+        public void backupSet(String key, String json, double at) {
+            if (key == null || key.startsWith("__")) return;
+            getSharedPreferences("backup", MODE_PRIVATE).edit()
+                    .putString(key, json).putLong("__at", (long) at).apply();
+        }
+
+        @JavascriptInterface
+        public String backupGetAll() {
+            try {
+                org.json.JSONObject o = new org.json.JSONObject();
+                for (java.util.Map.Entry<String, ?> e : getSharedPreferences("backup", MODE_PRIVATE).getAll().entrySet()) {
+                    o.put(e.getKey(), e.getValue());
+                }
+                return o.toString();
+            } catch (org.json.JSONException e) {
+                return "{}";
+            }
+        }
+
         /** Kennzeichen für die Seite: diese App-Version kann den Standort freigeben. */
         @JavascriptInterface
         public boolean hasLocation() {
