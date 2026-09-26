@@ -69,7 +69,14 @@ Die Seite auf dem Handy öffnen und über „Zum Startbildschirm hinzufügen“ 
 Favoriten, Notizen und eigene Termine speichert das jeweilige Gerät (Handy und PC getrennt).
 Ob die letzte Suche geklappt hat, steht in der Seite unter Einstellungen → „Zustand der Quellen“ oder auf GitHub unter **Actions**.
 
-> Hinweis: Der Zeitplan (alle 3 Stunden) läuft bei GitHub nur auf dem **Standard-Branch** des Repositories.
+**Damit wirklich alle 3 Stunden aktualisiert wird:** GitHub schaut stündlich nach und sucht, sobald der letzte Stand
+älter als 2 Std 40 Min ist. Weil GitHub geplante Läufe manchmal ausfallen lässt, stößt zusätzlich eine Netlify-Funktion
+(`netlify/functions/refresh.mjs`, stündlich, nutzt dasselbe `GITHUB_TOKEN`) die Suche an. Bei jedem Lauf werden
+neue Anzeigen übernommen, vergangene Termine gelöscht, nicht mehr gefundene Kleinanzeigen einzeln nachgeprüft und
+gelöschte entfernt; Termine, die ein Kalender/eine Webseite seit ~6 Stunden nicht mehr aufführt, fliegen ebenfalls raus.
+In der App steht oben „Stand: heute 14:23 Uhr“ – ist er älter als 6 Stunden, erscheint eine rote Warnung.
+
+> Hinweis: Der Zeitplan läuft bei GitHub nur auf dem **Standard-Branch** des Repositories.
 > Die Webseite funktioniert genauso mit GitHub Pages oder jedem anderen Webspace: einfach den Inhalt des Branches `live` ausliefern.
 
 ### Eigene Quellen hinzufügen (z.B. Kieler Express, Kirchengemeinde)

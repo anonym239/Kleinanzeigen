@@ -3,7 +3,11 @@ name: Termine suchen & Webseite veröffentlichen
 # Netlify ist mit dem Branch "live" verknüpft und veröffentlicht jede Änderung automatisch.
 on:
   schedule:
-    - cron: "23 */3 * * *"   # alle 3 Stunden
+    # GitHub lässt geplante Läufe manchmal ausfallen – deshalb stündlich anstoßen; gesucht wird nur,
+    # wenn der letzte Stand älter als ca. 2 Std 40 Min ist (siehe Schritt "Nötig?")
+    - cron: "23 * * * *"
+  repository_dispatch:
+    types: [refresh]          # zweiter Wecker: Netlify-Funktion netlify/functions/refresh.mjs (stündlich)
   workflow_dispatch:
   push:
     paths: [config.json, app/**, netlify/**, .github/workflows/site.yml]
@@ -24,18 +28,34 @@ jobs:
       TZ: Europe/Berlin
     steps:
       - uses: actions/checkout@v4
+
+      - name: Nötig? (bei Zeitplan/Wecker nur, wenn der letzte Stand älter als 2 Std 40 Min ist)
+        id: need
+        run: |
+          if [ "${{ github.event_name }}" != "schedule" ] && [ "${{ github.event_name }}" != "repository_dispatch" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          age=$(git fetch -q --depth 1 origin live 2>/dev/null && git show origin/live:data/events.json 2>/dev/null \
+            | python3 -c "import json,sys,time; print(int(time.time() - json.load(sys.stdin)['generated_at']))" 2>/dev/null || echo 999999)
+          echo "Letzter Stand vor $((age / 60)) Minuten"
+          if [ "$age" -ge 9600 ]; then echo "run=true" >> "$GITHUB_OUTPUT"; else echo "run=false" >> "$GITHUB_OUTPUT"; fi
+
       - uses: actions/setup-python@v5
+        if: steps.need.outputs.run == 'true'
         with: { python-version: "3.12", cache: pip }
-      - run: pip install -r requirements.txt
+      - if: steps.need.outputs.run == 'true'
+        run: pip install -r requirements.txt
 
       # Datenbank vom letzten Lauf wiederherstellen (bekannte Anzeigen, Geo-Daten, "NEU"-Markierung)
       - uses: actions/cache/restore@v4
+        if: steps.need.outputs.run == 'true'
         with:
           path: data
           key: flohmarkt-db-${{ github.run_id }}
           restore-keys: flohmarkt-db-
 
       - name: Termine suchen und Webseite bauen
+        if: steps.need.outputs.run == 'true'
         env:
           # Optional: Claude prüft neue Anzeigen und liest schwierige Webseiten (Secret in den Repo-Einstellungen)
           # (andere übliche Namen werden auch akzeptiert, falls das Secret anders benannt wurde)
@@ -43,12 +63,13 @@ jobs:
         run: python -m app.build_site --config config.json --out site
 
       - uses: actions/cache/save@v4
-        if: always()
+        if: always() && steps.need.outputs.run == 'true'
         with:
           path: data
           key: flohmarkt-db-${{ github.run_id }}
 
       - name: Webseite in Branch "live" legen (Netlify veröffentlicht automatisch)
+        if: steps.need.outputs.run == 'true'
         run: |
           git config user.name "flohmarkt-bot"
           git config user.email "flohmarkt-bot@users.noreply.github.com"

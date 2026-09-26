@@ -209,3 +209,26 @@ def scrape(
                 yield ad
             if new_on_page == 0 or len(ads) < 20:
                 break
+
+
+GONE_MARKERS = ("nicht mehr verfügbar", "wurde gelöscht", "wurde deaktiviert", "ist nicht mehr online",
+                "anzeige ist abgelaufen", "existiert nicht mehr", "nicht mehr aktiv")
+
+
+def ad_exists(client, url: str) -> bool | None:
+    """Gibt es die Anzeige noch? True/False, None = unklar (z.B. Sperre oder keine Verbindung)."""
+    m = re.search(r"/(\d{6,})-", url)
+    try:
+        r = client.get(url)
+    except Exception:  # noqa: BLE001
+        return None
+    if r.status_code in (404, 410):
+        return False
+    if r.status_code != 200:
+        return None
+    if m and m.group(1) not in str(r.url):
+        return False  # auf Suche/Startseite umgeleitet
+    text = r.text.lower()
+    if any(k in text for k in GONE_MARKERS) and (not m or f'"{m.group(1)}"' not in text):
+        return False
+    return True

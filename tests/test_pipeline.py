@@ -88,3 +88,44 @@ def test_calendar_run(monkeypatch):
     assert any("plzgebiet_50.html?page=2" in p for p in pages)
     run = next(r for r in db.last_runs() if r["source"] == "Flohmarkt-Kalender")
     assert run["ok"] == 1 and run["found"] == 1
+
+
+def test_vanished_ads_are_removed(monkeypatch):
+    """Anzeigen, die nicht mehr in der Suche auftauchen, werden nachgeprüft – gelöschte fliegen raus."""
+    import time as _t
+    from datetime import date, timedelta
+    monkeypatch.setattr(db, "DB_PATH", Path(tempfile.mkdtemp()) / "v.db")
+    monkeypatch.setattr(scraper, "polite_pause", lambda *a: None)
+    d = (date.today() + timedelta(days=3)).isoformat()
+    for ad in ("111111", "222222", "333333"):
+        db.upsert_event({"id": f"ka:{ad}", "source": "kleinanzeigen", "title": "Hofflohmarkt", "start_date": d,
+                         "url": f"https://www.kleinanzeigen.de/s-anzeige/hofflohmarkt/{ad}-2-1", "relevant": 1})
+    started = _t.time() + 1  # alle drei wurden "vor" diesem Lauf zuletzt gesehen
+
+    def handler(req: httpx.Request):
+        if "111111" in req.url.path:
+            return httpx.Response(410, text="weg")
+        if "222222" in req.url.path:
+            return httpx.Response(302, headers={"Location": "https://www.kleinanzeigen.de/s-hofflohmarkt/k0"})
+        if req.url.path.startswith("/s-hofflohmarkt"):
+            return httpx.Response(200, text="Suchergebnisse")
+        return httpx.Response(200, text='<html>Hofflohmarkt "333333" Samstag</html>')
+
+    monkeypatch.setattr(scraper, "make_client", lambda: httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True))
+    checked, removed = scraper._check_vanished_ads(started)
+    assert (checked, removed) == (3, 2)
+    assert [e["id"] for e in db.list_events()] == ["ka:333333"]
+    # frisch geprüfte Anzeige wird nicht bei jedem Lauf erneut abgerufen
+    assert db.unseen_kleinanzeigen(started) == []
+
+
+def test_drop_unseen_calendar_events(monkeypatch):
+    import time as _t
+    monkeypatch.setattr(db, "DB_PATH", Path(tempfile.mkdtemp()) / "c.db")
+    db.upsert_event({"id": "cal:a", "source": "krencky24.de", "title": "Flohmarkt A", "start_date": "2099-01-01"})
+    db.upsert_event({"id": "cal:b", "source": "krencky24.de", "title": "Flohmarkt B", "start_date": "2099-01-01"})
+    db.upsert_event({"id": "ka:x", "source": "kleinanzeigen", "title": "Hofflohmarkt", "start_date": "2099-01-01"})
+    with db.connect() as c:
+        c.execute("UPDATE events SET last_seen = ? WHERE id IN ('cal:a', 'ka:x')", (_t.time() - 8 * 3600,))
+    assert db.drop_unseen(["krencky24.de"], _t.time() - scraper.STALE_AFTER) == 1
+    assert sorted(e["id"] for e in db.list_events()) == ["cal:b", "ka:x"]

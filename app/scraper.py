@@ -11,7 +11,7 @@ from . import ai_review, db, geo
 from .classify import _EVENT_WORDS, classify, is_event_ad, is_service_ad
 from .dateparse import parse_event_date, parse_time_text
 from .sources import calendars, events_page, kleinanzeigen, kn
-from .sources.base import SourceError, fetch, make_client
+from .sources.base import SourceError, fetch, make_client, polite_pause
 
 log = logging.getLogger(__name__)
 
@@ -211,6 +211,26 @@ def _run_calendars(settings: dict) -> tuple[int, int, str]:
     return found, new, msg
 
 
+STALE_AFTER = 6 * 3600  # so lange (≈ 2 Suchläufe) nicht mehr gesehen -> Termin wurde entfernt/abgesagt
+
+
+def _check_vanished_ads(started: float) -> tuple[int, int]:
+    """Kleinanzeigen, die im Suchlauf fehlten, einzeln nachprüfen und gelöschte entfernen."""
+    todo = db.unseen_kleinanzeigen(started)
+    gone = []
+    with make_client() as client:
+        for ev in todo:
+            state["message"] = "Prüfe, ob ältere Anzeigen noch online sind …"
+            exists = kleinanzeigen.ad_exists(client, ev["url"])
+            if exists is None:
+                break  # Sperre/keine Verbindung: später erneut versuchen
+            db.mark_checked(ev["id"])
+            if not exists:
+                gone.append(ev["id"])
+            polite_pause(1.0, 2.0)
+    return len(todo), db.delete_events(gone)
+
+
 def run_all() -> bool:
     """Führt eine komplette Aktualisierung aus. Gibt False zurück, wenn schon eine läuft."""
     if not _run_lock.acquire(blocking=False):
@@ -222,7 +242,9 @@ def run_all() -> bool:
             t0 = time.time()
             try:
                 found, new = _run_kleinanzeigen(settings)
-                db.log_run("kleinanzeigen", t0, True, found, f"{new} neu")
+                checked, removed = _check_vanished_ads(t0) if found else (0, 0)
+                db.log_run("kleinanzeigen", t0, True, found,
+                           f"{new} neu" + (f", {removed} gelöschte Anzeigen entfernt" if removed else ""))
             except Exception as e:  # noqa: BLE001
                 log.exception("Kleinanzeigen fehlgeschlagen")
                 db.log_run("kleinanzeigen", t0, False, 0, str(e))
@@ -230,6 +252,10 @@ def run_all() -> bool:
             t0 = time.time()
             try:
                 found, new, msg = _run_calendars(settings)
+                if found and "Fehler" not in msg:
+                    gone = db.drop_unseen(["krencky24.de", "meine-flohmarkt-termine.de"], t0 - STALE_AFTER)
+                    if gone:
+                        msg += f", {gone} abgesagte/entfernte Termine gelöscht"
                 db.log_run("Flohmarkt-Kalender", t0, True, found, msg)
             except Exception as e:  # noqa: BLE001
                 log.exception("Flohmarkt-Kalender fehlgeschlagen")
@@ -239,6 +265,8 @@ def run_all() -> bool:
             state["message"] = "Kieler Nachrichten …"
             try:
                 found, new = _run_kn(settings)
+                if found:
+                    db.drop_unseen([kn.NAME], t0 - STALE_AFTER)
                 db.log_run(kn.NAME, t0, True, found, f"{new} neu" if found else "zurzeit keine Termine in den Feeds")
             except Exception as e:  # noqa: BLE001
                 log.warning("Kieler Nachrichten fehlgeschlagen: %s", e)
@@ -250,6 +278,7 @@ def run_all() -> bool:
                 found, new = _run_url(url, settings)
                 if found:
                     msg = f"{new} neu"
+                    db.drop_unseen([events_page.source_name(url)], t0 - STALE_AFTER)
                 elif ai_review.enabled():
                     msg = (f"Claude konnte die Seite nicht lesen: {ai_review.last_error}" if ai_review.last_error
                            else "Claude hat die Seite gelesen – keine Termine im Umkreis gefunden")

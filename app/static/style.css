@@ -557,3 +557,9 @@ html.pdf-mode .toast { top: calc(var(--topbar-h, 120px) + 10px); bottom: auto; }
 
 /* Fahrzeiten */
 .tour-stop small.leg, .tour-home small.leg { display: block; color: var(--accent); font-weight: 700; }
+
+/* Stand der Daten */
+.count-wrap { display: flex; flex-direction: column; min-width: 0; }
+.data-age { margin: 0; font-size: .82rem; color: var(--ink-soft); }
+.data-age:empty { display: none; }
+.data-age.old { color: var(--danger); font-weight: 700; }

@@ -95,7 +95,8 @@ def connect():
                 c.executescript(SCHEMA)
                 cols = {r[1] for r in c.execute("PRAGMA table_info(events)")}
                 for col, decl in (("relevant", "INTEGER DEFAULT 1"), ("ai_checked", "INTEGER DEFAULT 0"),
-                                  ("ai_verdict", "INTEGER"), ("ai_note", "TEXT DEFAULT ''")):
+                                  ("ai_verdict", "INTEGER"), ("ai_note", "TEXT DEFAULT ''"),
+                                  ("checked_at", "REAL DEFAULT 0")):
                     if col not in cols:  # ältere Datenbanken nachrüsten
                         c.execute(f"ALTER TABLE events ADD COLUMN {col} {decl}")
                 c.execute("PRAGMA journal_mode=WAL")
@@ -286,6 +287,48 @@ def cleanup(keep_past_days: int) -> int:
         ).rowcount
         c.execute("DELETE FROM user_state WHERE event_id NOT IN (SELECT id FROM events)")
         c.execute("DELETE FROM runs WHERE id NOT IN (SELECT id FROM runs ORDER BY id DESC LIMIT 200)")
+    return n
+
+
+def unseen_kleinanzeigen(before: float, limit: int = 40, recheck_hours: float = 12) -> list[dict]:
+    """Kleinanzeigen, die im letzten Suchlauf nicht mehr auftauchten (evtl. gelöscht) – zum Nachprüfen."""
+    today = date.today().isoformat()
+    with connect() as c:
+        rows = c.execute(
+            "SELECT id, url FROM events WHERE source = 'kleinanzeigen' AND relevant = 1 AND last_seen < ? "
+            "AND (start_date IS NULL OR COALESCE(end_date, start_date) >= ?) AND COALESCE(checked_at, 0) < ? "
+            "ORDER BY COALESCE(checked_at, 0), last_seen LIMIT ?",
+            (before, today, time.time() - recheck_hours * 3600, limit),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def mark_checked(event_id: str) -> None:
+    with connect() as c:
+        c.execute("UPDATE events SET checked_at = ? WHERE id = ?", (time.time(), event_id))
+
+
+def delete_events(ids: list[str]) -> int:
+    if not ids:
+        return 0
+    with connect() as c:
+        n = c.execute(f"DELETE FROM events WHERE id IN ({','.join('?' for _ in ids)}) "
+                      "AND id NOT IN (SELECT event_id FROM user_state WHERE favorite = 1)", ids).rowcount
+        c.execute("DELETE FROM user_state WHERE event_id NOT IN (SELECT id FROM events)")
+    return n
+
+
+def drop_unseen(sources: list[str], before: float) -> int:
+    """Termine einer Quelle löschen, die sie seit mehreren erfolgreichen Läufen nicht mehr aufführt (abgesagt/entfernt)."""
+    if not sources:
+        return 0
+    with connect() as c:
+        n = c.execute(
+            f"DELETE FROM events WHERE source IN ({','.join('?' for _ in sources)}) AND last_seen < ? "
+            "AND id NOT IN (SELECT event_id FROM user_state WHERE favorite = 1)",
+            [*sources, before],
+        ).rowcount
+        c.execute("DELETE FROM user_state WHERE event_id NOT IN (SELECT id FROM events)")
     return n
 
 
