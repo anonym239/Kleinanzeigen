@@ -555,10 +555,5 @@ html.pdf-mode .toast { top: calc(var(--topbar-h, 120px) + 10px); bottom: auto; }
 .dupe-row > span { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
 .dupe-row small { display: block; color: var(--ink-soft); }
 
-/* Wetter und Fahrzeiten */
-.wx { display: inline-flex; align-items: center; gap: 4px; font-size: .9rem; color: var(--ink-soft); white-space: nowrap; }
-.day-head .wx { margin-left: 4px; }
-.dt-date .wx { font-size: .85rem; }
-.tour-wx { margin: 0; }
+/* Fahrzeiten */
 .tour-stop small.leg, .tour-home small.leg { display: block; color: var(--accent); font-weight: 700; }
-.wx-min { opacity: .7; font-weight: 400; }
