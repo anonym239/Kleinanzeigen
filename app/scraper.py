@@ -10,7 +10,7 @@ from datetime import date, timedelta
 from . import ai_review, db, geo
 from .classify import _EVENT_WORDS, classify, is_event_ad, is_service_ad
 from .dateparse import parse_event_date, parse_time_text
-from .sources import calendars, events_page, kleinanzeigen, kn
+from .sources import calendars, events_page, kleinanzeigen, kn, marktcom
 from .sources.base import SourceError, fetch, make_client, polite_pause
 
 log = logging.getLogger(__name__)
@@ -218,12 +218,14 @@ def _run_url(url: str, settings: dict) -> tuple[int, int]:
     return found, new
 
 
-def _run_kn(settings: dict) -> tuple[int, int]:
+def _run_kn(settings: dict, paper: dict | None = None) -> tuple[int, int]:
+    paper = paper or kn.PAPERS[0]
+    prefix = "kn" if paper["name"] == kn.NAME else "news:" + re.sub(r"[^a-z]", "", paper["name"].lower())
     found = new = 0
     with make_client() as client:
-        items = kn.scrape(client)
+        items = kn.scrape(client, paper)
     for it in items:
-        f, n = _store_web_item(it, kn.NAME, f"kn:{it['ext_id']}", settings)
+        f, n = _store_web_item(it, paper["name"], f"{prefix}:{it['ext_id']}", settings)
         found, new = found + f, new + n
     return found, new
 
@@ -253,6 +255,41 @@ def _run_calendars(settings: dict) -> tuple[int, int, str]:
     if errors:
         msg += f" – Fehler: {'; '.join(errors)[:200]}"
     return found, new, msg
+
+
+def _run_marktcom(settings: dict) -> tuple[int, int]:
+    """marktcom.de: Terminlisten der PLZ-Gebiete; Detailseiten (Uhrzeit, Adresse) nur im Umkreis und nur einmal."""
+    if settings.get("home_lat") is None:
+        return 0, 0
+    home = (settings["home_lat"], settings["home_lon"])
+    radius = float(settings.get("radius_km") or 50)
+    prefixes = geo.plz_prefixes_near(home[0], home[1], radius)
+    until = date.today() + timedelta(days=int(settings.get("days_ahead") or 14) + 7)
+    found = new = details = 0
+    with make_client() as client:
+        items = marktcom.scrape(client, sorted({p[0] for p in prefixes}), until, log_msg=log.warning)
+        for it in items:
+            m = re.search(r"\b(\d{5})\b", it["address"] or "")
+            if not m or m.group(1)[:2] not in prefixes:
+                continue  # anderes PLZ-Gebiet (z.B. Bremen bei "2…")
+            ev_id = f"mc:{it['ext_id']}"
+            known = db.get_event(ev_id)
+            if known and (known.get("time_text") or known.get("checked_at")):  # Detailseite schon gelesen
+                it.update(time_text=known.get("time_text") or "", address=known.get("address") or it["address"],
+                          lat=known.get("lat"), lon=known.get("lon"))
+            elif details < 40:
+                rough = geo.geocode(m.group(1))
+                if rough and geo.haversine_km(*home, rough[0], rough[1]) > radius + 10:
+                    continue
+                state["message"] = f"marktcom.de: {it['title'][:40]} …"
+                marktcom.enrich(client, it)
+                details += 1
+                polite_pause(1.0, 2.0)
+            f, n = _store_web_item(it, marktcom.NAME, ev_id, settings)
+            if f and not (known and known.get("checked_at")):
+                db.mark_checked(ev_id)
+            found, new = found + f, new + n
+    return found, new
 
 
 STALE_AFTER = 6 * 3600  # so lange (≈ 2 Suchläufe) nicht mehr gesehen -> Termin wurde entfernt/abgesagt
@@ -304,17 +341,28 @@ def run_all() -> bool:
             except Exception as e:  # noqa: BLE001
                 log.exception("Flohmarkt-Kalender fehlgeschlagen")
                 db.log_run("Flohmarkt-Kalender", t0, False, 0, str(e))
-        if settings.get("kn_enabled", True) and settings.get("home_query"):
+        if settings.get("calendars_enabled", True) and settings.get("home_query"):
             t0 = time.time()
-            state["message"] = "Kieler Nachrichten …"
+            state["message"] = "marktcom.de …"
             try:
-                found, new = _run_kn(settings)
+                found, new = _run_marktcom(settings)
                 if found:
-                    db.drop_unseen([kn.NAME], t0 - STALE_AFTER)
-                db.log_run(kn.NAME, t0, True, found, f"{new} neu" if found else "zurzeit keine Termine in den Feeds")
+                    db.drop_unseen([marktcom.NAME], t0 - STALE_AFTER)
+                db.log_run(marktcom.NAME, t0, True, found, f"{new} neu")
             except Exception as e:  # noqa: BLE001
-                log.warning("Kieler Nachrichten fehlgeschlagen: %s", e)
-                db.log_run(kn.NAME, t0, False, 0, str(e))
+                log.warning("marktcom.de fehlgeschlagen: %s", e)
+                db.log_run(marktcom.NAME, t0, False, 0, str(e))
+        for paper in (kn.PAPERS if settings.get("kn_enabled", True) and settings.get("home_query") else []):
+            t0 = time.time()
+            state["message"] = f"{paper['name']} …"
+            try:
+                found, new = _run_kn(settings, paper)
+                if found:
+                    db.drop_unseen([paper["name"]], t0 - STALE_AFTER)
+                db.log_run(paper["name"], t0, True, found, f"{new} neu" if found else "zurzeit keine Termine in den Feeds")
+            except Exception as e:  # noqa: BLE001
+                log.warning("%s fehlgeschlagen: %s", paper["name"], e)
+                db.log_run(paper["name"], t0, False, 0, str(e))
         for url in settings.get("extra_urls") or []:
             t0 = time.time()
             state["message"] = f"Lese {events_page.source_name(url)} …"

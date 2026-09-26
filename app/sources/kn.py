@@ -29,6 +29,18 @@ FEEDS = [
     "https://www.kn-online.de/arc/outboundfeeds/rss/category/lokales/ploen/",
     "https://www.kn-online.de/arc/outboundfeeds/rss/",
 ]
+# Weitere Zeitungen der Region mit öffentlichen RSS-Feeds (gleiche Auswertung: nur Termine, keine Nachrichten)
+PAPERS = [
+    {"name": NAME, "feeds": FEEDS, "area": "Kiel & Umgebung", "site": "https://www.kn-online.de"},
+    {"name": "Lübecker Nachrichten", "area": "Lübeck & Umgebung", "site": "https://www.ln-online.de", "feeds": [
+        "https://www.ln-online.de/arc/outboundfeeds/rss/category/lokales/luebeck/",
+        "https://www.ln-online.de/arc/outboundfeeds/rss/category/lokales/ostholstein/",
+        "https://www.ln-online.de/arc/outboundfeeds/rss/category/lokales/segeberg/",
+        "https://www.ln-online.de/arc/outboundfeeds/rss/category/lokales/stormarn/",
+        "https://www.ln-online.de/arc/outboundfeeds/rss/",
+    ]},
+    {"name": "sh:z", "area": "Schleswig-Holstein", "site": "https://www.shz.de", "feeds": ["https://www.shz.de/rss"]},
+]
 # Nur Termin-Übersichten/Ankündigungen, keine Berichte
 LISTING_RE = re.compile(r"termine|wann und wo|übersicht|am wochenende|diese flohmärkte|wo ist .*flohmarkt|flohmärkte in", re.I)
 NS = {"content": "http://purl.org/rss/1.0/modules/content/", "media": "http://search.yahoo.com/mrss/"}
@@ -38,8 +50,8 @@ def _text(html: str) -> str:
     return re.sub(r"\s+", " ", BeautifulSoup(html or "", "html.parser").get_text(" ")).strip()
 
 
-def parse_feed(xml: str, today: date | None = None) -> list[dict]:
-    """Liefert Termine (gleiches Format wie events_page) aus einem KN-RSS-Feed."""
+def parse_feed(xml: str, today: date | None = None, paper: str = NAME, area: str = "Kiel & Umgebung") -> list[dict]:
+    """Liefert Termine (gleiches Format wie events_page) aus einem Zeitungs-RSS-Feed."""
     today = today or date.today()
     root = ET.fromstring(xml.encode() if isinstance(xml, str) else xml)
     out: list[dict] = []
@@ -88,13 +100,13 @@ def parse_feed(xml: str, today: date | None = None) -> list[dict]:
         out.append({
             "ext_id": hashlib.sha1((link or title).encode()).hexdigest()[:16],
             "title": title,
-            "description": _text(desc_html)[:1500] + "\n\nArtikel der Kieler Nachrichten – Details und Liste der Termine im Artikel.",
+            "description": _text(desc_html)[:1500] + f"\n\nArtikel: {paper} – Details und Liste der Termine im Artikel.",
             "url": link,
             "image": image,
             "start": start,
             "end": end,
             "time_text": parse_time_text(blob) or "",
-            "location": "Kiel & Umgebung",
+            "location": area,
             "address": "",
             "lat": None,
             "lon": None,
@@ -103,10 +115,19 @@ def parse_feed(xml: str, today: date | None = None) -> list[dict]:
     return out
 
 
-def scrape(client: httpx.Client) -> list[dict]:
+def scrape(client: httpx.Client, paper: dict | None = None) -> list[dict]:
+    paper = paper or PAPERS[0]
     items: dict[str, dict] = {}
-    for url in FEEDS:
+    errors = 0
+    for url in paper["feeds"]:
         polite_pause(0.5, 1.5)
-        for it in parse_feed(fetch(client, url)):
+        try:
+            xml = fetch(client, url)
+        except Exception:  # noqa: BLE001 – ein fehlender Lokal-Feed soll die anderen nicht stoppen
+            errors += 1
+            if errors == len(paper["feeds"]):
+                raise
+            continue
+        for it in parse_feed(xml, paper=paper["name"], area=paper["area"]):
             items.setdefault(it["ext_id"], it)
     return [it for it in items.values() if classify(it["title"], it["description"]) != "sonstiges"]

@@ -14,6 +14,8 @@ def test_full_run(monkeypatch):
     monkeypatch.setattr(geo, "_query", lambda params: (50.94, 6.96, "Köln"))
     monkeypatch.setattr(kleinanzeigen, "polite_pause", lambda *a: None)
     monkeypatch.setattr(geo, "plz_prefixes_near", lambda *a: [])
+    from app.sources import kn
+    monkeypatch.setattr(kn, "polite_pause", lambda *a: None)
     requested = []
 
     def handler(req: httpx.Request):

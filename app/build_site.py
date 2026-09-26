@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 
 from . import ai_review, db, geo, scraper
+from .sources import kn
 from .classify import CATEGORY_LABELS, TOP_CATEGORIES, classify
 
 log = logging.getLogger("build_site")
@@ -103,8 +104,10 @@ def source_list(settings: dict) -> list[dict]:
          "active": bool(settings.get("kleinanzeigen_enabled"))},
         {"name": "Flohmarkt-Kalender", "url": "https://krencky24.de", "builtin": True,
          "active": bool(settings.get("calendars_enabled", True))},
-        {"name": "Kieler Nachrichten", "url": "https://www.kn-online.de", "builtin": True,
-         "active": bool(settings.get("kn_enabled", True))},
+        {"name": "marktcom.de", "url": "https://www.marktcom.de", "builtin": True,
+         "active": bool(settings.get("calendars_enabled", True))},
+        *({"name": p["name"], "url": p["site"], "builtin": True, "active": bool(settings.get("kn_enabled", True))}
+          for p in kn.PAPERS),
     ]
     for url in settings.get("extra_urls") or []:
         items.append({"name": source_name(url), "url": url, "builtin": False, "active": True})
@@ -114,7 +117,7 @@ def source_list(settings: dict) -> list[dict]:
 def current_runs(settings: dict) -> list[dict]:
     """Nur die Läufe der aktuell eingestellten Quellen (alte, entfernte Quellen nicht mehr anzeigen)."""
     from .sources.events_page import source_name
-    names = {"kleinanzeigen", "Flohmarkt-Kalender", "Kieler Nachrichten", "Claude-Prüfung"}
+    names = {"kleinanzeigen", "Flohmarkt-Kalender", "marktcom.de", "Claude-Prüfung", *(p["name"] for p in kn.PAPERS)}
     names |= {source_name(u) for u in settings.get("extra_urls") or []}
     return [r for r in db.last_runs() if r["source"] in names]
 

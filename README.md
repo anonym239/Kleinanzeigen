@@ -35,6 +35,8 @@ Die App läuft auf dem eigenen Homeserver und ist auf dem Handy und am PC gut be
 | **Kleinanzeigen.de** (früher eBay Kleinanzeigen) | Haushaltsauflösungen, Hof- und Garagenflohmärkte von Privatleuten | normale Suchseite im Umkreis, Datum wird aus dem Anzeigentext erkannt |
 | **krencky24.de** / **meine-flohmarkt-termine.de** | Floh-, Trödel-, Antik- und Kinderflohmärkte mit festem Termin | Terminkalender der PLZ-Gebiete im Umkreis |
 | **KÄNGURU** (nur Region Köln/Bonn) | Kinderflohmärkte und Basare | Terminkalender |
+| **marktcom.de** | großer Kalender für Floh- und Trödelmärkte | Terminlisten der PLZ-Gebiete im Umkreis, Uhrzeit von der Detailseite |
+| **Kieler Nachrichten, Lübecker Nachrichten, sh:z** | Flohmarkt-Termine aus der Zeitung | offizielle RSS-Feeds, nur Termine (keine Nachrichten) |
 | **eigene Einträge** | z.B. aus der Zeitung | Knopf „Termin eintragen“ |
 
 Alles ohne API-Key und kostenlos. **Einzelartikel werden aussortiert**: Anzeigen wie „Vase aus Haushaltsauflösung 5 €“,
