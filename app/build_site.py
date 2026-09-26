@@ -8,6 +8,7 @@ damit bereits gelesene Anzeigen, Geo-Daten und die "NEU"-Markierung erhalten ble
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import re
@@ -105,7 +106,7 @@ def export(out: Path, settings: dict) -> int:
     shutil.copytree(STATIC, out / "static", dirs_exist_ok=True, ignore=shutil.ignore_patterns(*root_files))
     for name in root_files:
         shutil.copy(STATIC / name, out / name)
-    (out / "static" / "mode.js").write_text("window.FLOHMARKT_STATIC = true;\n")
+    (out / "static" / "mode.js").write_text(f"window.FLOHMARKT_STATIC = true;\nwindow.FLOHMARKT_BUILD = {json.dumps(build_id())};\n")
     (out / ".nojekyll").write_text("")
     (out / "netlify.toml").write_text(NETLIFY_TOML)
     functions = Path(__file__).resolve().parent.parent / "netlify" / "functions"
@@ -146,11 +147,22 @@ def export(out: Path, settings: dict) -> int:
         "sources": source_list(settings),
         "ai": {**db.ai_summary(), "enabled": ai_review.enabled(), "model": settings.get("claude_model") or ai_review.DEFAULT_MODEL},
         "site_url": settings.get("site_url") or "",
+        "build": build_id(),
         "events": events,
     }
     (out / "data").mkdir(exist_ok=True)
     (out / "data" / "events.json").write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")))
     return len(events)
+
+
+def build_id() -> str:
+    """Kennung des Oberflächen-Stands. Ändert sie sich, lädt eine offene App/Seite sich selbst neu."""
+    h = hashlib.sha1()
+    for f in sorted(STATIC.rglob("*")):
+        if f.is_file() and f.name != "mode.js":
+            h.update(f.relative_to(STATIC).as_posix().encode())
+            h.update(f.read_bytes())
+    return h.hexdigest()[:12]
 
 
 def export_app_assets(out: Path, data_url: str) -> None:
@@ -164,6 +176,7 @@ def export_app_assets(out: Path, data_url: str) -> None:
     (out / "static" / "mode.js").write_text(
         "window.FLOHMARKT_STATIC = true;\n"
         "window.FLOHMARKT_APP = true;\n"
+        f"window.FLOHMARKT_BUILD = {json.dumps(build_id())};\n"
         f"window.FLOHMARKT_DATA_URLS = {json.dumps(data_urls(data_url))};\n"
     )
 
