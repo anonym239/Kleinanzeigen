@@ -159,6 +159,7 @@ def _run_url(url: str, settings: dict) -> tuple[int, int]:
     else:
         items = events_page.parse_html(html, url) or events_page.parse_text_blocks(html, url)
     from_ai = False
+    ai_review.last_error = ""
     if not items and ai_review.enabled():
         # Kein festes Muster erkennbar: Claude liest die Seite (nur neu, wenn sie sich geändert hat)
         items = ai_review.extract_events_from_page(settings, url, html) or []
@@ -247,8 +248,14 @@ def run_all() -> bool:
             state["message"] = f"Lese {events_page.source_name(url)} …"
             try:
                 found, new = _run_url(url, settings)
-                db.log_run(events_page.source_name(url), t0, True, found,
-                           f"{new} neu" if found else "keine Termine (schema.org/Event oder iCal) gefunden")
+                if found:
+                    msg = f"{new} neu"
+                elif ai_review.enabled():
+                    msg = (f"Claude konnte die Seite nicht lesen: {ai_review.last_error}" if ai_review.last_error
+                           else "Claude hat die Seite gelesen – keine Termine im Umkreis gefunden")
+                else:
+                    msg = "keine Termine (schema.org/Event oder iCal) gefunden"
+                db.log_run(events_page.source_name(url), t0, True, found, msg)
             except Exception as e:  # noqa: BLE001
                 log.warning("Quelle %s fehlgeschlagen: %s", url, e)
                 db.log_run(events_page.source_name(url), t0, False, 0, str(e))
@@ -261,8 +268,10 @@ def run_all() -> bool:
                     _geocode_event(ev)
                     if ev.get("lat") is not None:
                         db.update_event_fields(ev["id"], {"lat": ev["lat"], "lon": ev["lon"]})
-                db.log_run("Claude-Prüfung", t0, True, st["checked"],
-                           f"{st['checked']} geprüft, {st['rejected']} aussortiert, {st['corrected']} Angaben korrigiert")
+                msg = f"{st['checked']} geprüft, {st['rejected']} aussortiert, {st['corrected']} Angaben korrigiert"
+                if st.get("error"):
+                    msg = f"{st['error']} ({msg})"
+                db.log_run("Claude-Prüfung", t0, not st.get("error"), st["checked"], msg)
             except Exception as e:  # noqa: BLE001
                 log.exception("Claude-Prüfung fehlgeschlagen")
                 db.log_run("Claude-Prüfung", t0, False, 0, str(e))

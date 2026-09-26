@@ -38,7 +38,8 @@ jobs:
       - name: Termine suchen und Webseite bauen
         env:
           # Optional: Claude prüft neue Anzeigen und liest schwierige Webseiten (Secret in den Repo-Einstellungen)
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # (andere übliche Namen werden auch akzeptiert, falls das Secret anders benannt wurde)
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || secrets.CLAUDE_API_KEY || secrets.ANTHROPIC_KEY || secrets.CLAUDE_KEY || secrets.API_KEY }}
         run: python -m app.build_site --config config.json --out site
 
       - uses: actions/cache/save@v4

@@ -827,10 +827,13 @@ function aiStatusHTML() {
   const ai = L$.data?.ai;
   if (!ai) return "";
   const run = (L$.data.runs || []).find((r) => r.source === "Claude-Prüfung");
+  const when = run ? ` · zuletzt ${new Date(run.finished * 1000).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" })}` : "";
   const text = !ai.enabled
-    ? "nicht eingerichtet – prüft Anzeigen und liest schwierige Webseiten, sobald ein Claude-API-Key hinterlegt ist"
-    : `${ai.checked} Anzeigen geprüft, ${ai.rejected} aussortiert${run ? ` · zuletzt ${new Date(run.finished * 1000).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" })}` : ""}`;
-  return `<div class="src-row"><span class="state ${ai.enabled ? "" : "wait"}"></span>
+    ? "nicht eingerichtet – der Key fehlt bei GitHub (Settings → Secrets and variables → Actions → Secret ANTHROPIC_API_KEY)"
+    : run && !run.ok ? `Problem: ${run.message}${when}`
+    : `${ai.checked} Anzeigen geprüft, ${ai.rejected} aussortiert${when}`;
+  const state = !ai.enabled ? "wait" : run && !run.ok ? "bad" : "";
+  return `<div class="src-row"><span class="state ${state}"></span>
     <div class="src-main"><strong>Claude-Prüfung</strong> <span class="pill">KI</span><small>${esc(text)}</small></div><span></span></div>`;
 }
 

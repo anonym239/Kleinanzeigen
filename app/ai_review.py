@@ -27,7 +27,8 @@ from . import db
 
 log = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "claude-opus-5"
+DEFAULT_MODEL = "claude-sonnet-5"   # gute Genauigkeit zu vernünftigem Preis
+FALLBACK_MODEL = "claude-haiku-4-5"  # falls das eingestellte Modell nicht verfügbar ist
 BATCH = 15               # Anzeigen pro Anfrage
 MAX_REVIEWS_PER_RUN = 90  # Obergrenze pro Suchlauf (Kosten)
 MAX_PAGE_CHARS = 60_000  # sehr lange Seiten werden gekürzt (wird im Log vermerkt)
@@ -83,13 +84,30 @@ Kategorien: "dorf" = Dorf-Flohmarkt, "strasse" = Straßen-Flohmarkt, "hof", "hau
 Datum immer als YYYY-MM-DD (fehlt das Jahr, das nächste passende ab dem Bezugsdatum). Erfinde nichts."""
 
 
+# Letzter Fehler von Claude in verständlichen Worten (wird in der App unter "Quellen" angezeigt)
+last_error: str = ""
+
+
 def enabled() -> bool:
-    return bool(os.environ.get("ANTHROPIC_API_KEY"))
+    return bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())
+
+
+def _explain(status: int, message: str) -> str:
+    m = (message or "").lower()
+    if status == 401:
+        return "API-Key ungültig – bitte neuen Key erstellen und bei GitHub als Secret ANTHROPIC_API_KEY eintragen"
+    if status == 403:
+        return "API-Key hat keine Berechtigung (Workspace/Organisation prüfen)"
+    if "credit" in m or "balance" in m or "billing" in m:
+        return "Kein Guthaben – bitte unter platform.claude.com → Abrechnung Credits kaufen bzw. Karte verifizieren"
+    if status == 404 or "model" in m:
+        return f"Modell nicht verfügbar ({message})"
+    return f"Fehler {status}: {message}"
 
 
 def _client():
     import anthropic
-    return anthropic.Anthropic()
+    return anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"].strip())
 
 
 def _model(settings: dict) -> str:
@@ -104,22 +122,34 @@ def _call(settings: dict, system: str, user: str, schema):
     if "haiku" not in model:
         extra["output_config"] = {"effort": "low"}  # Einordnen/Auslesen braucht wenig Denkaufwand (Haiku kennt kein effort)
     try:
-        resp = _client().messages.parse(
-            model=model,
-            max_tokens=16000,
-            system=system,
-            messages=[{"role": "user", "content": user}],
-            output_format=schema,
-            **extra,
-        )
+        try:
+            resp = _client().messages.parse(
+                model=model,
+                max_tokens=16000,
+                system=system,
+                messages=[{"role": "user", "content": user}],
+                output_format=schema,
+                **extra,
+            )
+        except anthropic.NotFoundError:
+            if model == FALLBACK_MODEL:
+                raise
+            log.warning("Claude: Modell %s nicht verfügbar – nehme %s", model, FALLBACK_MODEL)
+            resp = _client().messages.parse(
+                model=FALLBACK_MODEL,
+                max_tokens=16000,
+                system=system,
+                messages=[{"role": "user", "content": user}],
+                output_format=schema,
+            )
     except anthropic.RateLimitError as e:
-        log.warning("Claude: Anfragelimit erreicht (%s) – nächster Lauf versucht es wieder", e.message)
+        _fail(f"Anfragelimit erreicht – nächster Lauf versucht es wieder ({e.message})")
         return None
     except anthropic.APIStatusError as e:
-        log.warning("Claude: Fehler %s: %s", e.status_code, e.message)
+        _fail(_explain(e.status_code, e.message))
         return None
     except anthropic.APIConnectionError as e:
-        log.warning("Claude: keine Verbindung (%s)", e)
+        _fail(f"keine Verbindung zu Claude ({e})")
         return None
     if resp.stop_reason == "refusal":
         log.warning("Claude hat die Anfrage abgelehnt")
@@ -127,16 +157,24 @@ def _call(settings: dict, system: str, user: str, schema):
     if resp.stop_reason == "max_tokens":
         log.warning("Claude: Antwort zu lang, abgeschnitten")
         return None
+    global last_error
+    last_error = ""
     usage = resp.usage
     db.add_ai_usage(usage.input_tokens, usage.output_tokens)
     return resp.parsed_output
+
+
+def _fail(msg: str) -> None:
+    global last_error
+    last_error = msg[:300]
+    log.warning("Claude: %s", msg)
 
 
 # ---------- 1. Anzeigen prüfen ----------
 
 def review_new_events(settings: dict) -> dict:
     """Prüft noch nicht geprüfte Anzeigen. Gibt eine kleine Statistik zurück."""
-    stats = {"checked": 0, "rejected": 0, "corrected": 0}
+    stats = {"checked": 0, "rejected": 0, "corrected": 0, "error": ""}
     todo = db.events_for_ai_review(MAX_REVIEWS_PER_RUN)
     for i in range(0, len(todo), BATCH):
         batch = todo[i:i + BATCH]
@@ -152,6 +190,7 @@ def review_new_events(settings: dict) -> dict:
                 "jede genau ein Ergebnis mit derselben id zurück:\n\n" + "\n".join(lines))
         result = _call(settings, REVIEW_SYSTEM, user, Verdicts)
         if result is None:
+            stats["error"] = last_error or "keine Antwort von Claude"
             break
         by_id = {v.id: v for v in result.items}
         for e in batch:

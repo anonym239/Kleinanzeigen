@@ -35,7 +35,7 @@ def test_review_rejects_and_corrects(monkeypatch):
 
     monkeypatch.setattr(ai_review, "_call", fake_call)
     st = ai_review.review_new_events({})
-    assert st == {"checked": 2, "rejected": 1, "corrected": 2}
+    assert st == {"checked": 2, "rejected": 1, "corrected": 2, "error": ""}
     one, two = db.get_event("ka:1"), db.get_event("ka:2")
     assert one["start_date"] == d and one["time_text"] == "10–14 Uhr" and one["address"] == "Lindenweg 3, 24146 Kiel"
     assert one["ai_checked"] == 1 and one["ai_verdict"] == 1
@@ -68,3 +68,22 @@ def test_page_extraction_used_when_nothing_found(monkeypatch):
     assert titles == ["Flohmarkt Hochberg"]
     scraper.run_all()  # Seite unverändert -> Claude wird nicht erneut gefragt
     assert len(n_calls) == 1
+
+
+def test_explain_errors_for_humans():
+    assert "ungültig" in ai_review._explain(401, "invalid x-api-key")
+    assert "Guthaben" in ai_review._explain(400, "Your credit balance is too low to access the Anthropic API.")
+    assert "Modell" in ai_review._explain(404, "model: claude-xyz")
+
+
+def test_review_reports_error(monkeypatch):
+    _setup(monkeypatch)
+    db.upsert_event({"id": "ka:9", "source": "kleinanzeigen", "title": "Hofflohmarkt", "relevant": 1})
+
+    def failing_call(*a, **k):
+        ai_review._fail("API-Key ungültig")
+        return None
+
+    monkeypatch.setattr(ai_review, "_call", failing_call)
+    st = ai_review.review_new_events({})
+    assert st["checked"] == 0 and "ungültig" in st["error"]
