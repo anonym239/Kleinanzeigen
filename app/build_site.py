@@ -73,7 +73,26 @@ def apply_config(cfg: dict) -> dict:
             values.update(home_lat=res[0], home_lon=res[1], home_label=res[2])
         else:
             log.warning("Wohnort %r nicht gefunden", values["home_query"])
+    values.update(start_setting(cfg, values))
     return db.save_settings(values)
+
+
+def start_setting(cfg: dict, values: dict) -> dict:
+    """Standard-Startpunkt (z.B. "24147 Kiel-Elmschenhagen Nord"): Entfernungen und Routen rechnen von hier,
+    solange man in der App nichts Eigenes einstellt. Ohne Angabe = Mittelpunkt des Suchgebiets."""
+    label = str(cfg.get("start") or "").strip()
+    if not label:
+        return {"start_query": values["home_query"], "start_lat": values.get("home_lat"), "start_lon": values.get("home_lon")}
+    if cfg.get("start_lat") is not None and cfg.get("start_lon") is not None:
+        return {"start_query": label, "start_lat": float(cfg["start_lat"]), "start_lon": float(cfg["start_lon"])}
+    for q in [*(cfg.get("start_search") or []), label]:
+        res = geo.geocode(q)
+        # Plausibel? (muss im Suchgebiet liegen – schützt vor gleichnamigen Orten anderswo)
+        if res and (values.get("home_lat") is None
+                    or geo.haversine_km(values["home_lat"], values["home_lon"], res[0], res[1]) <= values["radius_km"]):
+            return {"start_query": label, "start_lat": res[0], "start_lon": res[1]}
+    log.warning("Startpunkt %r nicht gefunden – nehme den Mittelpunkt des Suchgebiets", label)
+    return {"start_query": values["home_query"], "start_lat": values.get("home_lat"), "start_lon": values.get("home_lon")}
 
 
 def source_list(settings: dict) -> list[dict]:
@@ -148,6 +167,8 @@ def export(out: Path, settings: dict) -> int:
         "ai": {**db.ai_summary(), "enabled": ai_review.enabled(), "model": settings.get("claude_model") or ai_review.DEFAULT_MODEL},
         "site_url": settings.get("site_url") or "",
         "build": build_id(),
+        "start": {"query": settings.get("start_query") or "", "lat": settings.get("start_lat"),
+                  "lon": settings.get("start_lon")},
         "events": events,
     }
     (out / "data").mkdir(exist_ok=True)

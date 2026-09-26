@@ -545,3 +545,5 @@ html.pdf-mode .toast { top: calc(var(--topbar-h, 120px) + 10px); bottom: auto; }
 .day-head { top: calc(var(--topbar-h, 120px) - 1px); }
 .day-head::before { content: ""; position: absolute; left: -16px; right: -16px; top: -12px; height: 13px; background: var(--paper); pointer-events: none; }
 .seg button { flex: 1 1 auto; }
+.loc-row { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.loc-row .btn { flex: 1 1 220px; }

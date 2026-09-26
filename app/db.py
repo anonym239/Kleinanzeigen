@@ -60,6 +60,9 @@ CREATE TABLE IF NOT EXISTS runs (
 DEFAULT_SETTINGS = {
     "home_query": "",          # PLZ oder Ort, z.B. "50667" oder "Köln"
     "home_label": "",
+    "start_query": "",         # Standard-Startpunkt für Entfernungen/Routen (nur Anzeige, Suchgebiet bleibt "home")
+    "start_lat": None,
+    "start_lon": None,
     "home_lat": None,
     "home_lon": None,
     "radius_km": 50,

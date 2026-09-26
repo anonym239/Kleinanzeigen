@@ -86,7 +86,20 @@ public class MainActivity extends Activity {
         if (Build.VERSION.SDK_INT >= 29) webView.setForceDarkAllowed(false);
 
         webView.addJavascriptInterface(new Bridge(), "AndroidApp");
-        webView.setWebChromeClient(new android.webkit.WebChromeClient()); // Dialoge (z.B. PIN-Abfrage) erlauben
+        ws.setGeolocationEnabled(true); // "Meinen Standort verwenden"
+        webView.setWebChromeClient(new android.webkit.WebChromeClient() { // Dialoge (z.B. PIN-Abfrage) erlauben
+            @Override
+            public void onGeolocationPermissionsShowPrompt(String origin, android.webkit.GeolocationPermissions.Callback callback) {
+                if (hasLocationPermission()) {
+                    callback.invoke(origin, true, false);
+                } else {
+                    pendingGeoOrigin = origin;
+                    pendingGeoCallback = callback;
+                    requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION,
+                            Manifest.permission.ACCESS_COARSE_LOCATION}, REQ_LOCATION);
+                }
+            }
+        });
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
@@ -203,6 +216,24 @@ public class MainActivity extends Activity {
     }
 
     private long pausedAt = 0;
+    private static final int REQ_LOCATION = 9;
+    private String pendingGeoOrigin;
+    private android.webkit.GeolocationPermissions.Callback pendingGeoCallback;
+
+    private boolean hasLocationPermission() {
+        return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                || checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQ_LOCATION && pendingGeoCallback != null) {
+            pendingGeoCallback.invoke(pendingGeoOrigin, hasLocationPermission(), false);
+            pendingGeoCallback = null;
+            pendingGeoOrigin = null;
+        }
+    }
 
     @Override
     protected void onPause() {
@@ -303,6 +334,12 @@ public class MainActivity extends Activity {
             if (day < 1 || day > 7 || hour < 0 || hour > 23 || minute < 0 || minute > 59) return;
             Reminder.prefs(MainActivity.this).edit().putInt("day", day).putInt("hour", hour).putInt("minute", minute).apply();
             Reminder.schedule(MainActivity.this);
+        }
+
+        /** Kennzeichen für die Seite: diese App-Version kann den Standort freigeben. */
+        @JavascriptInterface
+        public boolean hasLocation() {
+            return true;
         }
 
         /** "on", "off" oder "blocked" (Benachrichtigungen in den Handy-Einstellungen aus). */

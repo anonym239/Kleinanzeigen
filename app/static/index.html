@@ -160,8 +160,12 @@
 
     <fieldset>
       <legend>Wohnort &amp; Umkreis</legend>
-      <label class="field"><span class="field-label">PLZ oder Ort</span>
-        <input id="setHome" type="text" placeholder="z.B. 50667 oder Köln"></label>
+      <label class="field"><span class="field-label">Start für Entfernungen &amp; Routen (PLZ, Ort oder Adresse)</span>
+        <input id="setHome" type="text" placeholder="z.B. 24147 Kiel oder Straße, Ort"></label>
+      <div class="loc-row">
+        <button class="btn ghost" type="button" id="useLocation">📍 Meinen Standort verwenden</button>
+        <button class="link-btn" type="button" id="useStart" hidden></button>
+      </div>
       <p class="hint" id="setHomeLabel"></p>
       <p class="hint static-only" id="regionHint"></p>
       <label class="field"><span class="field-label">Umkreis (km)</span>

@@ -2,6 +2,13 @@
   "_hinweis": "Suchgebiet: Postleitzahl (oder Ort) und Umkreis in km. Nach dem Speichern sucht GitHub automatisch neu (dauert ca. 5-10 Minuten).",
   "home": "24146",
   "radius_km": 100,
+  "_hinweis_start": "Standard-Startpunkt für Entfernungen, Touren und PDF-Routen (in der App änderbar, z.B. mit 'Meinen Standort verwenden'). Das Suchgebiet bleibt 'home'.",
+  "start": "24147 Kiel-Elmschenhagen Nord",
+  "start_search": [
+    "Elmschenhagen-Nord, Kiel",
+    "Elmschenhagen, 24147 Kiel",
+    "24147 Kiel"
+  ],
   "days_ahead": 14,
   "search_terms": [
     "Haushaltsauflösung",
