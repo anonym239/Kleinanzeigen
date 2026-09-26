@@ -299,8 +299,6 @@ async function makePdf() {
           ? `${plan.home ? "Start" : ""}${pos.map((s) => ` > ${s.no}${s.leg ? ` (${fmtDur(s.leg.min)})` : ""}`).join("")}${back && plan.home ? ` > zurück (${fmtDur(back.min)})` : ""}` +
             `  =  ${fmtDur(d.drive.min)} Fahrt, ${fmtKm(d.drive.km)}`
           : `${plan.home ? "Start > " : ""}${nums.join(" > ")}${plan.home ? " > zurück" : ""}   (ca. ${d.km} km Fahrt)`;
-      const wx = wxText(d.day);
-      if (wx) txt += `  ·  Wetter: ${wx}`;
       return { d, nums, txt, url: mapsUrl(plan.home, d.stops) };
     });
     if (routeLines.length) {

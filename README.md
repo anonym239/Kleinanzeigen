@@ -17,7 +17,6 @@ Die App läuft auf dem eigenen Homeserver und ist auf dem Handy und am PC gut be
   Hinweis auf **vorbei gemerkte Termine** zum Bewerten und Aufräumen
 - **Tour planen**: gemerkte Termine eines Tages in der schnellsten Reihenfolge (echte Fahrzeiten vom
   OpenStreetMap-Routenplaner) als Route in Google Maps; **PDF** mit Karte, Route und Infos (Schwarz-Weiß-tauglich)
-- **Wetter pro Tag** (Open-Meteo, kostenlos) an den Tagen, in der Tour und im PDF
 - **Doppelte Anzeigen** desselben Marktes werden zu einer Karte zusammengefasst („2 Anzeigen“)
 - **Android-App aktualisiert sich selbst**: meldet neue Versionen und installiert sie über die alte
 - **Freitags-Erinnerung** (Android-App): am eingestellten Tag und zur eingestellten Uhrzeit (Standard Freitag 7 Uhr), wie viele Flohmärkte am Wochenende im Umkreis sind

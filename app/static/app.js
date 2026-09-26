@@ -531,13 +531,13 @@ function groupedListHTML(list, overview) {
     html += `<nav class="day-overview" aria-label="Tage">` + days.map((d) => `
       <a class="day-tile" href="#tag-${d}">
         <span class="dt-day">${esc(parseISO(d).toLocaleDateString("de-DE", { weekday: "long" }))}</span>
-        <span class="dt-date">${esc(parseISO(d).toLocaleDateString("de-DE", { day: "numeric", month: "numeric" }))} ${wxHTML(d)}</span>
+        <span class="dt-date">${esc(parseISO(d).toLocaleDateString("de-DE", { day: "numeric", month: "numeric" }))}</span>
         <span class="dt-n"><strong>${groups.get(d).length}</strong> ${groups.get(d).length === 1 ? "Termin" : "Termine"}</span>
       </a>`).join("") + `</nav>`;
   }
   for (const [day, evs] of groups) {
     const head = day
-      ? `<span class="day-tag">${esc(fmtDay(day))}</span><span class="day-rel">${relDay(day)}</span>${wxHTML(day)}`
+      ? `<span class="day-tag">${esc(fmtDay(day))}</span><span class="day-rel">${relDay(day)}</span>`
       : `<span class="day-tag muted">Ohne erkanntes Datum</span><span class="day-rel">Datum steht evtl. im Text</span>`;
     html += `<div class="day-head" id="tag-${day || "ohne-datum"}">${head}<span class="day-count">${evs.length}</span></div>` + evs.map(cardHTML).join("");
   }
@@ -686,7 +686,6 @@ function openDetail(id) {
     </div>
     <dl class="detail-meta">
       <dt>Wann</dt><dd>${dateLine(ev)}${ev.start_date ? ` <span class="hint">(${relDay(ev.start_date)})</span>` : ""}</dd>
-      ${ev.start_date && wxFor(ev.start_date < S.today ? S.today : ev.start_date) ? `<dt>Wetter</dt><dd>${wxHTML(ev.start_date < S.today ? S.today : ev.start_date, true)}</dd>` : ""}
       <dt>Wo</dt><dd>${placeLine(ev)}</dd>
       ${ev.price ? `<dt>Preis</dt><dd>${esc(ev.price)}</dd>` : ""}
       <dt>Quelle</dt><dd>${esc(sourceLabel(ev.source))}${ev.posted_at ? `, eingestellt ${esc(parseISO(ev.posted_at).toLocaleDateString("de-DE"))}` : ""}</dd>
@@ -1049,58 +1048,6 @@ async function planDrive(stops, home, back) {
   return res;
 }
 
-/* ---------- Wetter pro Tag (Open-Meteo, kostenlos, ohne Key) ---------- */
-const WX = { days: null };
-const WMO = [[0, "☀️", "sonnig"], [1, "🌤️", "überwiegend sonnig"], [2, "⛅", "teils bewölkt"], [3, "☁️", "bedeckt"],
-  [48, "🌫️", "Nebel"], [57, "🌦️", "Nieselregen"], [67, "🌧️", "Regen"], [77, "🌨️", "Schnee"], [82, "🌦️", "Regenschauer"],
-  [86, "🌨️", "Schneeschauer"], [99, "⛈️", "Gewitter"]];
-const wmo = (code) => WMO.find(([max]) => code <= max) || WMO[WMO.length - 1];
-
-async function loadWeather() {
-  const s = S.settings;
-  if (s.home_lat == null) return;
-  const key = `${(+s.home_lat).toFixed(2)},${(+s.home_lon).toFixed(2)}`;
-  const c = store.get("wx2", null);
-  if (c && c.key === key && Date.now() - c.at < 3 * 3600e3) { WX.days = c.days; return; }
-  try {
-    const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${s.home_lat}&longitude=${s.home_lon}` +
-      "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum," +
-      "sunshine_duration,daylight_duration&timezone=Europe%2FBerlin&forecast_days=16");
-    const d = (await r.json()).daily;
-    const days = {};
-    d.time.forEach((t, i) => {
-      days[t] = { code: fairCode(d.weather_code[i], d.precipitation_probability_max?.[i], d.precipitation_sum?.[i],
-        d.sunshine_duration?.[i], d.daylight_duration?.[i]), max: d.temperature_2m_max[i], min: d.temperature_2m_min[i],
-        rain: d.precipitation_probability_max?.[i] ?? null };
-    });
-    WX.days = days;
-    store.set("wx2", { key, at: Date.now(), days });
-    render();
-  } catch { /* ohne Wetter weiter */ }
-}
-
-/* Der Tagescode nennt schon einen kurzen Schauer "Regen". Ist Regen unwahrscheinlich, lieber nach
-   Sonnenstunden zeigen (sonnig / teils bewölkt / bedeckt) – so wie es ein Mensch beschreiben würde. */
-function fairCode(code, prob, sum, sun, daylight) {
-  const wet = (code >= 51 && code <= 67) || (code >= 80 && code <= 82);
-  const ratio = sun != null && daylight ? sun / daylight : null;
-  const bySun = ratio == null ? 3 : ratio > 0.7 ? 0 : ratio > 0.45 ? 1 : ratio > 0.2 ? 2 : 3;
-  if (wet && ((prob != null && prob < 30) || (sum != null && sum < 0.5))) return bySun;
-  if (code <= 3 && ratio != null) return bySun;
-  return code;
-}
-
-function wxFor(day) { return WX.days?.[day] || null; }
-function wxHTML(day, long = false) {
-  const w = wxFor(day); if (!w) return "";
-  const [, emo, txt] = wmo(w.code);
-  return `<span class="wx" title="${esc(txt)} in ${esc(S.settings.home_query || "")}">${emo} ${Math.round(w.max)}° <span class="wx-min">${Math.round(w.min)}°</span>${long ? ` · ${esc(txt)}` : ""}${w.rain != null && (long || w.rain >= 30) ? ` · 💧${w.rain} %` : ""}</span>`;
-}
-function wxText(day) { // für das PDF (ohne Symbole)
-  const w = wxFor(day); if (!w) return "";
-  return `${wmo(w.code)[2]}, ${Math.round(w.min)} bis ${Math.round(w.max)} Grad${w.rain != null ? `, Regenrisiko ${w.rain} %` : ""}`;
-}
-
 function openTour(day) {
   if (TOUR.day !== day) { TOUR.day = day; TOUR.skip = new Set(); }
   const all = tourStops(day);
@@ -1139,7 +1086,6 @@ function openTour(day) {
     ${order.length ? `<p class="tour-sum"><strong>${order.length} ${order.length === 1 ? "Stopp" : "Stopps"}</strong> · ${drive
       ? `<strong>${fmtDur(drive.min)} Fahrt</strong>, ${fmtKm(drive.km)}`
       : `ca. ${road} km Fahrstrecke <span class="hint">(Fahrzeit wird berechnet …)</span>`}${back ? " (mit Rückfahrt)" : ""}</p>` : ""}
-    ${wxHTML(day) ? `<p class="tour-wx">Wetter: ${wxHTML(day, true)}</p>` : ""}
     <ol class="tour-list">
       ${home ? `<li class="tour-home">🏠 Start: ${esc(S.settings.home_query || "Zuhause")}</li>` : ""}
       ${order.map((e, i) => {
@@ -1568,7 +1514,6 @@ async function loadEvents() {
   S.events = data.events; S.categories = data.categories; S.today = data.today;
   addKeptFavorites();
   syncFavSnaps();
-  loadWeather();
   pushReminder();
   checkAppUpdate();
   renderSources();
@@ -1834,3 +1779,6 @@ async function main() {
 }
 
 main();
+
+/* Früher gespeicherte Wetterdaten aufräumen */
+try { localStorage.removeItem("wx"); localStorage.removeItem("wx2"); } catch { /* egal */ }
