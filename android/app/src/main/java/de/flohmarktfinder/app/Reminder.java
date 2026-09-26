@@ -27,7 +27,7 @@ import java.util.Locale;
 import java.util.Set;
 
 /**
- * Freitags-Erinnerung: Jeden Freitag zur eingestellten Uhrzeit (Standard 7 Uhr) lädt die App die aktuellen Termine und meldet,
+ * Wochenend-Erinnerung: Jede Woche am eingestellten Tag (Standard Freitag) zur eingestellten Uhrzeit (Standard 7 Uhr) lädt die App die aktuellen Termine und meldet,
  * wie viele Flohmärkte am Wochenende im eingestellten Umkreis sind (mit den Top-Tipps).
  * Läuft auch, wenn die App geschlossen ist; nach einem Neustart des Handys wird sie neu geplant.
  */
@@ -67,7 +67,7 @@ public class Reminder extends BroadcastReceiver {
         return PendingIntent.getBroadcast(c, 1, i, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
-    /** Plant den nächsten Freitag zur eingestellten Uhrzeit (oder hebt die Planung auf, wenn ausgeschaltet). */
+    /** Plant den nächsten eingestellten Tag zur eingestellten Uhrzeit (oder hebt die Planung auf, wenn ausgeschaltet). */
     static void schedule(Context c) {
         AlarmManager am = (AlarmManager) c.getSystemService(Context.ALARM_SERVICE);
         if (am == null) return;
@@ -81,7 +81,9 @@ public class Reminder extends BroadcastReceiver {
         next.set(Calendar.MINUTE, prefs(c).getInt("minute", 0));
         next.set(Calendar.SECOND, 0);
         next.set(Calendar.MILLISECOND, 0);
-        int days = (Calendar.FRIDAY - next.get(Calendar.DAY_OF_WEEK) + 7) % 7;
+        int day = prefs(c).getInt("day", Calendar.FRIDAY);
+        if (day < Calendar.SUNDAY || day > Calendar.SATURDAY) day = Calendar.FRIDAY;
+        int days = (day - next.get(Calendar.DAY_OF_WEEK) + 7) % 7;
         next.add(Calendar.DAY_OF_MONTH, days);
         if (next.getTimeInMillis() <= System.currentTimeMillis()) next.add(Calendar.DAY_OF_MONTH, 7);
         // Ungefähre Uhrzeit reicht (braucht keine Sonderberechtigung, schont den Akku)

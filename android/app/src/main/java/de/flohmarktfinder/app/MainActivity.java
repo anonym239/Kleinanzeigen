@@ -202,6 +202,24 @@ public class MainActivity extends Activity {
         }
     }
 
+    private long pausedAt = 0;
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        pausedAt = System.currentTimeMillis();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // Lange im Hintergrund gewesen: Seite neu laden, damit immer der aktuelle Stand zu sehen ist
+        if (pausedAt > 0 && System.currentTimeMillis() - pausedAt > 20 * 60 * 1000L && webView != null) {
+            webView.reload();
+        }
+        pausedAt = 0;
+    }
+
     @Override
     protected void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
@@ -276,6 +294,14 @@ public class MainActivity extends Activity {
         public void setReminderTime(int hour, int minute) {
             if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return;
             Reminder.prefs(MainActivity.this).edit().putInt("hour", hour).putInt("minute", minute).apply();
+            Reminder.schedule(MainActivity.this);
+        }
+
+        /** Tag (Calendar: 5 = Do, 6 = Fr, 7 = Sa) und Uhrzeit der Wochenend-Erinnerung. */
+        @JavascriptInterface
+        public void setReminderSchedule(int day, int hour, int minute) {
+            if (day < 1 || day > 7 || hour < 0 || hour > 23 || minute < 0 || minute > 59) return;
+            Reminder.prefs(MainActivity.this).edit().putInt("day", day).putInt("hour", hour).putInt("minute", minute).apply();
             Reminder.schedule(MainActivity.this);
         }
 

@@ -16,7 +16,7 @@ Die App läuft auf dem eigenen Homeserver und ist auf dem Handy und am PC gut be
 - **Schon besucht** mit 1–5 Sternen, **jährliche Märkte vormerken** (Hinweis, sobald der nächste Termin auftaucht),
   Hinweis auf **vorbei gemerkte Termine** zum Bewerten und Aufräumen
 - **Tour planen**: gemerkte Termine eines Tages in der kürzesten Reihenfolge als Route in Google Maps
-- **Freitags-Erinnerung** (Android-App): jeden Freitag zur eingestellten Uhrzeit (Standard 7 Uhr), wie viele Flohmärkte am Wochenende im Umkreis sind
+- **Freitags-Erinnerung** (Android-App): am eingestellten Tag und zur eingestellten Uhrzeit (Standard Freitag 7 Uhr), wie viele Flohmärkte am Wochenende im Umkreis sind
 - **Route** in Google Maps, **In den Kalender** (.ics), **Teilen** (z.B. per WhatsApp)
 - **Kalender-Abo** aller gemerkten Termine (Adresse steht in den Einstellungen)
 - **Selbst Termine eintragen**, z.B. aus der Zeitung oder vom Aushang

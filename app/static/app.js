@@ -937,13 +937,16 @@ function openTour(day) {
 const APK_URL = "https://github.com/anonym239/Kleinanzeigen/releases/latest/download/Flohmarkt-Finder.apk";
 const appHas = (fn) => !!(window.AndroidApp && typeof window.AndroidApp[fn] === "function");
 
+const DAY_NAMES = { 5: "Donnerstag", 6: "Freitag", 7: "Samstag" }; // Nummern wie Java Calendar
+const reminderDay = () => (DAY_NAMES[store.get("reminderDay", 6)] ? Number(store.get("reminderDay", 6)) : 6);
 const reminderTime = () => (/^\d\d:\d\d$/.test(store.get("fridayTime", "")) ? store.get("fridayTime") : "07:00");
 
 function pushReminder() {
-  if (appHas("setReminderTime")) {
-    const [h, m] = reminderTime().split(":").map(Number);
-    try { window.AndroidApp.setReminderTime(h, m); } catch { /* ältere App */ }
-  }
+  const [h, m] = reminderTime().split(":").map(Number);
+  try {
+    if (appHas("setReminderSchedule")) window.AndroidApp.setReminderSchedule(reminderDay(), h, m);
+    else if (appHas("setReminderTime")) window.AndroidApp.setReminderTime(h, m);
+  } catch { /* ältere App */ }
   if (!appHas("setReminder")) return;
   const s = S.settings;
   const favIds = S.events.filter((e) => e.favorite).map((e) => e.id);
@@ -955,15 +958,15 @@ function pushReminder() {
 
 function checkAppUpdate() {
   const el = $("#appUpdate");
-  const old = window.FLOHMARKT_APP && !appHas("setReminderTime"); // neueste Funktion der App
-  const snoozed = Date.now() - store.get("updateSnooze3", 0) < 3 * 86400000;
+  const old = window.FLOHMARKT_APP && !appHas("setReminderSchedule"); // neueste Funktion der App
+  const snoozed = Date.now() - store.get("updateSnooze4", 0) < 3 * 86400000;
   el.hidden = !old || snoozed;
   if (el.hidden) return;
-  el.innerHTML = `<span>📲 <strong>Neue App-Version:</strong> Uhrzeit der Freitags-Erinnerung einstellbar, PDF speichern, bessere Darstellung. Einfach herunterladen und über die alte App installieren – alles Gemerkte bleibt.</span>
+  el.innerHTML = `<span>📲 <strong>Neue App-Version:</strong> Tag und Uhrzeit der Wochenend-Erinnerung einstellbar, PDF speichern, bessere Darstellung. Einfach herunterladen und über die alte App installieren – alles Gemerkte bleibt.</span>
     <span class="notice-acts"><button class="btn small" type="button" id="updateNow">Jetzt aktualisieren</button>
     <button class="link-btn" type="button" id="updateLater">Später</button></span>`;
   $("#updateNow").addEventListener("click", () => { if (appHas("openUrl")) window.AndroidApp.openUrl(APK_URL); else openExternal(APK_URL); });
-  $("#updateLater").addEventListener("click", () => { store.set("updateSnooze3", Date.now()); el.hidden = true; });
+  $("#updateLater").addEventListener("click", () => { store.set("updateSnooze4", Date.now()); el.hidden = true; });
 }
 
 function syncReminderSettings() {
@@ -974,7 +977,9 @@ function syncReminderSettings() {
   $("#fridayTime").value = preset ? time : "custom";
   $("#fridayCustom").value = time;
   $("#fridayCustom").hidden = preset;
+  $("#reminderDay").value = String(reminderDay());
   $("#fridayTime").disabled = $("#fridayCustom").disabled = !ok || !$("#setFriday").checked;
+  $("#reminderDay").disabled = !appHas("setReminderSchedule") || !$("#setFriday").checked;
   $("#setFriday").disabled = !ok;
   $("#testFriday").disabled = !ok;
   const status = ok && appHas("reminderStatus") ? window.AndroidApp.reminderStatus() : "";
@@ -982,7 +987,8 @@ function syncReminderSettings() {
     ? "Die Freitags-Erinnerung gibt es in der Android-App."
     : !ok ? "Dafür bitte die neue App-Version installieren (Hinweis oben in der Liste)."
     : status === "blocked" ? "Benachrichtigungen sind für die App ausgeschaltet: Handy-Einstellungen → Apps → Flohmärkte → Benachrichtigungen erlauben."
-    : `Kommt jeden Freitag gegen ${time.replace(/^0/, "")} Uhr: wie viele Flohmärkte am Wochenende in deinem Umkreis sind, mit den Top-Tipps.`;
+    : `Kommt jeden ${appHas("setReminderSchedule") ? DAY_NAMES[reminderDay()] : "Freitag"} gegen ${time.replace(/^0/, "")} Uhr: wie viele Flohmärkte am Wochenende in deinem Umkreis sind, mit den Top-Tipps.` +
+      (appHas("setReminderSchedule") ? "" : " (Tag wählen geht mit der neuesten App-Version.)");
 }
 
 const APP = window.AndroidApp || null; // in der Android-App vorhanden
@@ -1387,12 +1393,16 @@ function bind() {
   $("#fridayTime").addEventListener("change", (e) => {
     if (e.target.value === "custom") { $("#fridayCustom").hidden = false; $("#fridayCustom").focus(); return; }
     store.set("fridayTime", e.target.value); pushReminder(); syncReminderSettings();
-    toast(`Die Erinnerung kommt jetzt freitags um ${e.target.value} Uhr`);
+    toast(`Die Erinnerung kommt jetzt ${DAY_NAMES[reminderDay()].toLowerCase()}s um ${e.target.value} Uhr`);
+  });
+  $("#reminderDay").addEventListener("change", (e) => {
+    store.set("reminderDay", Number(e.target.value)); pushReminder(); syncReminderSettings();
+    toast(`Die Erinnerung kommt jetzt ${DAY_NAMES[reminderDay()].toLowerCase()}s um ${reminderTime()} Uhr`);
   });
   $("#fridayCustom").addEventListener("change", (e) => {
     if (!/^\d\d:\d\d$/.test(e.target.value)) return;
     store.set("fridayTime", e.target.value); pushReminder(); syncReminderSettings();
-    toast(`Die Erinnerung kommt jetzt freitags um ${e.target.value} Uhr`);
+    toast(`Die Erinnerung kommt jetzt ${DAY_NAMES[reminderDay()].toLowerCase()}s um ${e.target.value} Uhr`);
   });
   $("#testFriday").addEventListener("click", () => {
     pushReminder();
