@@ -513,7 +513,7 @@ function render() {
   syncControls();
   renderCats();
   renderMemoryHints();
-  renderPdfBar();
+  if (typeof renderPdfBar === "function") renderPdfBar();
   renderList(list);
   applyView();
   if (S.map) renderMap(list);
@@ -625,7 +625,7 @@ function openDetail(id) {
   body.dataset.id = id;
   const dlg = $("#detail");
   if (!dlg.open) dlg.showModal();
-  $("#noteField").addEventListener("change", (e) => setState(ev, { note: e.target.value }, false));
+  $("#noteField")?.addEventListener("change", (e) => setState(ev, { note: e.target.value }, false));
 }
 
 function visitBoxHTML(ev) {
@@ -772,6 +772,7 @@ async function removeFavorite(id) {
 /* Hinweise über der Liste: vorbei gemerkte Termine, jährliche Märkte mit neuem Termin */
 function renderMemoryHints() {
   const el = $("#memoryHints");
+  if (!el) return; // Seite und Programm kurzzeitig unterschiedlich alt (Zwischenspeicher)
   if (S.view === "fav") { el.innerHTML = ""; return; }
   const hints = [];
   const past = pastFavorites();
@@ -969,6 +970,7 @@ function pushReminder() {
 
 function checkAppUpdate() {
   const el = $("#appUpdate");
+  if (!el) return; // Seite und Programm kurzzeitig unterschiedlich alt (Zwischenspeicher)
   const old = window.FLOHMARKT_APP && !appHas("hasLocation"); // neueste Funktion der App
   const snoozed = Date.now() - store.get("updateSnooze5", 0) < 3 * 86400000;
   el.hidden = !old || snoozed;
@@ -976,8 +978,8 @@ function checkAppUpdate() {
   el.innerHTML = `<span>📲 <strong>Neue App-Version:</strong> genauer Standort per GPS, Tag und Uhrzeit der Erinnerung einstellbar, PDF speichern, bessere Darstellung. Einfach herunterladen und über die alte App installieren – alles Gemerkte bleibt.</span>
     <span class="notice-acts"><button class="btn small" type="button" id="updateNow">Jetzt aktualisieren</button>
     <button class="link-btn" type="button" id="updateLater">Später</button></span>`;
-  $("#updateNow").addEventListener("click", () => { if (appHas("openUrl")) window.AndroidApp.openUrl(APK_URL); else openExternal(APK_URL); });
-  $("#updateLater").addEventListener("click", () => { store.set("updateSnooze5", Date.now()); el.hidden = true; });
+  $("#updateNow")?.addEventListener("click", () => { if (appHas("openUrl")) window.AndroidApp.openUrl(APK_URL); else openExternal(APK_URL); });
+  $("#updateLater")?.addEventListener("click", () => { store.set("updateSnooze5", Date.now()); el.hidden = true; });
 }
 
 function syncReminderSettings() {
@@ -1368,36 +1370,36 @@ function bind() {
     if (S.events.length) render(); else startLoad();
     window.scrollTo({ top: 0, behavior: "smooth" });
   });
-  $("#rangeBar").addEventListener("click", (e) => {
+  $("#rangeBar")?.addEventListener("click", (e) => {
     const b = e.target.closest("[data-range]"); if (!b) return;
     S.filters.range = b.dataset.range; render();
   });
   let qT;
-  $("#q").addEventListener("input", (e) => { clearTimeout(qT); qT = setTimeout(() => { S.filters.q = e.target.value.trim(); render(); }, 200); });
-  $("#catChips").addEventListener("click", (e) => {
+  $("#q")?.addEventListener("input", (e) => { clearTimeout(qT); qT = setTimeout(() => { S.filters.q = e.target.value.trim(); render(); }, 200); });
+  $("#catChips")?.addEventListener("click", (e) => {
     const b = e.target.closest("[data-cat]"); if (!b) return;
     const c = b.dataset.cat, cats = S.filters.cats;
     S.filters.cats = cats.includes(c) ? cats.filter((x) => x !== c) : [...cats, c];
     render();
   });
-  $("#radius").addEventListener("input", (e) => { $("#radiusOut").textContent = `${e.target.value} km`; });
-  $("#radius").addEventListener("change", (e) => { S.filters.radius = Number(e.target.value); render(); pushReminder(); });
+  $("#radius")?.addEventListener("input", (e) => { $("#radiusOut").textContent = `${e.target.value} km`; });
+  $("#radius")?.addEventListener("change", (e) => { S.filters.radius = Number(e.target.value); render(); pushReminder(); });
   for (const k of ["weekendOnly", "favOnly", "undated", "noLocation", "services", "showHidden"]) {
     $("#" + k).addEventListener("change", (e) => { S.filters[k] = e.target.checked; render(); });
   }
-  $("#source").addEventListener("change", (e) => { S.filters.source = e.target.value; render(); });
-  $("#sort").addEventListener("change", (e) => { S.filters.sort = e.target.value; render(); });
-  $("#resetFilters").addEventListener("click", resetFilters);
+  $("#source")?.addEventListener("change", (e) => { S.filters.source = e.target.value; render(); });
+  $("#sort")?.addEventListener("change", (e) => { S.filters.sort = e.target.value; render(); });
+  $("#resetFilters")?.addEventListener("click", resetFilters);
 
-  $("#openFilters").addEventListener("click", () => setFiltersOpen(true));
-  $("#closeFilters").addEventListener("click", () => setFiltersOpen(false));
-  $("#showResults").addEventListener("click", () => { setFiltersOpen(false); window.scrollTo({ top: 0 }); });
+  $("#openFilters")?.addEventListener("click", () => setFiltersOpen(true));
+  $("#closeFilters")?.addEventListener("click", () => setFiltersOpen(false));
+  $("#showResults")?.addEventListener("click", () => { setFiltersOpen(false); window.scrollTo({ top: 0 }); });
 
-  $("#viewList").addEventListener("click", () => { S.view = "list"; store.set("view", "list"); render(); });
-  $("#viewFav").addEventListener("click", () => { S.view = "fav"; store.set("view", "fav"); render(); window.scrollTo({ top: 0 }); });
-  $("#viewMap").addEventListener("click", () => { S.view = "map"; store.set("view", "map"); applyView(); if (S.map) renderMap(filtered()); });
+  $("#viewList")?.addEventListener("click", () => { S.view = "list"; store.set("view", "list"); render(); });
+  $("#viewFav")?.addEventListener("click", () => { S.view = "fav"; store.set("view", "fav"); render(); window.scrollTo({ top: 0 }); });
+  $("#viewMap")?.addEventListener("click", () => { S.view = "map"; store.set("view", "map"); applyView(); if (S.map) renderMap(filtered()); });
 
-  $("#list").addEventListener("click", async (e) => {
+  $("#list")?.addEventListener("click", async (e) => {
     const t = e.target.closest("[data-tour],[data-open],[data-past-visited],[data-past-remove],[data-past-rate],[data-past-clear],[data-yearly-remove]");
     if (t) {
       const row = t.closest("[data-past]");
@@ -1429,51 +1431,51 @@ function bind() {
     }
     openDetail(ev.id);
   });
-  $("#list").addEventListener("keydown", (e) => {
+  $("#list")?.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && e.target.classList.contains("card")) openDetail(e.target.dataset.id);
   });
-  $("#map").addEventListener("click", (e) => {
+  $("#map")?.addEventListener("click", (e) => {
     const pick = e.target.closest("[data-pick]");
     if (pick) { togglePick(pick.dataset.pick); S.map.closePopup(); return; }
     const b = e.target.closest("[data-open]"); if (b) openDetail(b.dataset.open);
   });
-  bindPdf();
-  $("#memoryHints").addEventListener("click", (e) => {
+  if (typeof bindPdf === "function") bindPdf(); // pdf.js fehlt, wenn die Seite noch alt zwischengespeichert ist
+  $("#memoryHints")?.addEventListener("click", (e) => {
     const b = e.target.closest("[data-goto-fav],[data-open]"); if (!b) return;
     if (b.dataset.seen) { const seen = store.get("yearlySeen", {}); seen[b.dataset.seen] = 1; store.set("yearlySeen", seen); }
     if (b.hasAttribute("data-goto-fav")) { S.view = "fav"; store.set("view", "fav"); render(); window.scrollTo({ top: 0 }); }
     else { openDetail(b.dataset.open); renderMemoryHints(); }
   });
-  $("#tourDialog").addEventListener("click", (e) => {
+  $("#tourDialog")?.addEventListener("click", (e) => {
     if (e.target === $("#tourDialog") || e.target.closest("[data-close]")) $("#tourDialog").close();
   });
-  $("#tourDialog").addEventListener("change", (e) => {
+  $("#tourDialog")?.addEventListener("change", (e) => {
     const id = e.target.dataset.tourSkip;
     if (id) { if (e.target.checked) TOUR.skip.delete(id); else TOUR.skip.add(id); }
     if (e.target.id === "tourBack") TOUR.back = e.target.checked;
     openTour(TOUR.day);
   });
-  $("#setFriday").addEventListener("change", (e) => { store.set("friday", e.target.checked); pushReminder(); syncReminderSettings(); });
-  $("#fridayTime").addEventListener("change", (e) => {
+  $("#setFriday")?.addEventListener("change", (e) => { store.set("friday", e.target.checked); pushReminder(); syncReminderSettings(); });
+  $("#fridayTime")?.addEventListener("change", (e) => {
     if (e.target.value === "custom") { $("#fridayCustom").hidden = false; $("#fridayCustom").focus(); return; }
     store.set("fridayTime", e.target.value); pushReminder(); syncReminderSettings();
     toast(`Die Erinnerung kommt jetzt ${DAY_NAMES[reminderDay()].toLowerCase()}s um ${e.target.value} Uhr`);
   });
-  $("#reminderDay").addEventListener("change", (e) => {
+  $("#reminderDay")?.addEventListener("change", (e) => {
     store.set("reminderDay", Number(e.target.value)); pushReminder(); syncReminderSettings();
     toast(`Die Erinnerung kommt jetzt ${DAY_NAMES[reminderDay()].toLowerCase()}s um ${reminderTime()} Uhr`);
   });
-  $("#fridayCustom").addEventListener("change", (e) => {
+  $("#fridayCustom")?.addEventListener("change", (e) => {
     if (!/^\d\d:\d\d$/.test(e.target.value)) return;
     store.set("fridayTime", e.target.value); pushReminder(); syncReminderSettings();
     toast(`Die Erinnerung kommt jetzt ${DAY_NAMES[reminderDay()].toLowerCase()}s um ${e.target.value} Uhr`);
   });
-  $("#testFriday").addEventListener("click", () => {
+  $("#testFriday")?.addEventListener("click", () => {
     pushReminder();
     if (appHas("testReminder")) { window.AndroidApp.testReminder(); toast("Probe-Nachricht kommt gleich (Termine werden geladen) …"); }
   });
 
-  $("#detail").addEventListener("click", async (e) => {
+  $("#detail")?.addEventListener("click", async (e) => {
     if (e.target === $("#detail") || e.target.closest("[data-close]")) { $("#detail").close(); return; }
     const b = e.target.closest("[data-dact]"); if (!b) return;
     const ev = S.events.find((x) => x.id === $("#detailBody").dataset.id);
@@ -1500,12 +1502,12 @@ function bind() {
     }
   });
 
-  $("#refreshBtn").addEventListener("click", startRefresh);
-  $("#settingsBtn").addEventListener("click", openSettings);
-  $("#homeChip").addEventListener("click", openSettings);
-  $("#saveSettings").addEventListener("click", saveSettings);
-  $("#useLocation").addEventListener("click", useMyLocation);
-  $("#useStart").addEventListener("click", async () => {
+  $("#refreshBtn")?.addEventListener("click", startRefresh);
+  $("#settingsBtn")?.addEventListener("click", openSettings);
+  $("#homeChip")?.addEventListener("click", openSettings);
+  $("#saveSettings")?.addEventListener("click", saveSettings);
+  $("#useLocation")?.addEventListener("click", useMyLocation);
+  $("#useStart")?.addEventListener("click", async () => {
     resetToStart();
     S.settings = await api("/api/settings");
     $("#setHome").value = S.settings.home_query || "";
@@ -1514,19 +1516,19 @@ function bind() {
     await loadEvents(); pushReminder();
     toast(`Start ist wieder ${S.settings.home_query}`);
   });
-  $("#settings").addEventListener("click", (e) => { if (e.target === $("#settings")) $("#settings").close(); });
-  $("#fontSeg").addEventListener("click", (e) => { const b = e.target.closest("[data-font]"); if (b) { store.set("font", Number(b.dataset.font)); applyLook(); } });
-  $("#themeSeg").addEventListener("click", (e) => { const b = e.target.closest("[data-theme-set]"); if (b) { store.set("theme", b.dataset.themeSet); applyLook(); } });
-  $("#copyIcs").addEventListener("click", async () => {
+  $("#settings")?.addEventListener("click", (e) => { if (e.target === $("#settings")) $("#settings").close(); });
+  $("#fontSeg")?.addEventListener("click", (e) => { const b = e.target.closest("[data-font]"); if (b) { store.set("font", Number(b.dataset.font)); applyLook(); } });
+  $("#themeSeg")?.addEventListener("click", (e) => { const b = e.target.closest("[data-theme-set]"); if (b) { store.set("theme", b.dataset.themeSet); applyLook(); } });
+  $("#copyIcs")?.addEventListener("click", async () => {
     try { await navigator.clipboard.writeText($("#icsUrl").value); toast("Adresse kopiert"); }
     catch { $("#icsUrl").select(); toast("Adresse markiert – jetzt kopieren"); }
   });
-  $("#restoreHidden").addEventListener("click", async () => {
+  $("#restoreHidden")?.addEventListener("click", async () => {
     const r = await api("/api/hidden/reset", { method: "POST" });
     await loadEvents(); toast(`${r.restored} Termine wiederhergestellt`);
   });
 
-  $("#addSource").addEventListener("click", async () => {
+  $("#addSource")?.addEventListener("click", async () => {
     let url = $("#newSource").value.trim();
     if (url && !/^https?:\/\//i.test(url)) url = `https://${url}`;
     let ok = false;
@@ -1534,17 +1536,17 @@ function bind() {
     if (!ok) { showSourceMsg("Bitte eine Webadresse eingeben, z.B. www.kieler-express.de", true); return; }
     await changeSource("add", url);
   });
-  $("#sourceList").addEventListener("click", (e) => {
+  $("#sourceList")?.addEventListener("click", (e) => {
     const b = e.target.closest("[data-remove-src]");
     if (!b) return;
     if (b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.textContent = "Wirklich entfernen?"; return; }
     changeSource("remove", b.dataset.removeSrc);
   });
-  $("#addBtn").addEventListener("click", openAdd);
-  $("#addForm").addEventListener("submit", submitAdd);
-  $("#addDialog").addEventListener("click", (e) => { if (e.target === $("#addDialog") || e.target.closest("[data-close]")) $("#addDialog").close(); });
+  $("#addBtn")?.addEventListener("click", openAdd);
+  $("#addForm")?.addEventListener("submit", submitAdd);
+  $("#addDialog")?.addEventListener("click", (e) => { if (e.target === $("#addDialog") || e.target.closest("[data-close]")) $("#addDialog").close(); });
 
-  $("#welcomeForm").addEventListener("submit", async (e) => {
+  $("#welcomeForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const err = $("#welcomeError"); err.hidden = true;
     try {
@@ -1582,7 +1584,7 @@ function showLoadError(e) {
     <button class="btn primary" type="button" id="retryLoad">Erneut versuchen</button>
     ${e.detail ? `<p class="hint err-detail">Technische Info: ${esc(e.detail)}</p>` : ""}
   </div>`;
-  $("#retryLoad").addEventListener("click", startLoad);
+  $("#retryLoad")?.addEventListener("click", startLoad);
 }
 
 async function main() {
