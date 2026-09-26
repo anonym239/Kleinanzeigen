@@ -8,7 +8,7 @@ Die App läuft auf dem eigenen Homeserver und ist auf dem Handy und am PC gut be
 - **Zeitraum mit einem Tipp**: Heute · Dieses Wochenende · Nächstes Wochenende · Nächste 14 Tage · Alle
 - **Nur Samstag & Sonntag** als zusätzlicher Filter
 - **Umkreis-Filter** (Standard 50 km) um den eigenen Wohnort (PLZ oder Ort), mit Entfernung in km; innerhalb eines Tages steht das Nächstgelegene oben
-- **Kategorien** mit Farben: Flohmarkt, Hof- & Garagenflohmarkt, Haushaltsauflösung, Kinder & Basar, Trödel- & Antikmarkt
+- **Kategorien** mit Farben: **Dorf-Flohmärkte** und **Straßen-Flohmärkte** (als „★ Top-Tipp“ gold hervorgehoben, stehen je Tag oben), Flohmarkt, Hof- & Garagenflohmarkt, Haushaltsauflösung, Kinder & Basar, Trödel- & Antikmarkt
 - **Suche** im Text, z.B. „Werkzeug“ oder „Schallplatten“
 - **Firmen-Werbung ausblenden**: Anzeigen von Entrümpelungsfirmen, Ankäufern und Gesuchen werden erkannt und standardmäßig versteckt
 - **Liste nach Tagen sortiert** oder **Karte** (OpenStreetMap). Auf großen Bildschirmen stehen Liste und Karte nebeneinander

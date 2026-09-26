@@ -13,7 +13,9 @@
     "Garagenflohmarkt",
     "Trödelmarkt",
     "Kinderflohmarkt",
-    "Kinderbasar"
+    "Kinderbasar",
+    "Dorfflohmarkt",
+    "Straßenflohmarkt"
   ],
   "kleinanzeigen_pages": 3,
   "detail_fetch_limit": 80,

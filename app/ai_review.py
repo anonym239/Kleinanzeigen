@@ -32,7 +32,7 @@ BATCH = 15               # Anzeigen pro Anfrage
 MAX_REVIEWS_PER_RUN = 90  # Obergrenze pro Suchlauf (Kosten)
 MAX_PAGE_CHARS = 60_000  # sehr lange Seiten werden gekürzt (wird im Log vermerkt)
 
-Category = Literal["flohmarkt", "hof", "haushalt", "kinder", "antik", "sonstiges"]
+Category = Literal["dorf", "strasse", "flohmarkt", "hof", "haushalt", "kinder", "antik", "sonstiges"]
 
 
 class Verdict(BaseModel):
@@ -70,12 +70,16 @@ In die App gehören NUR Veranstaltungen bzw. Verkäufe vor Ort mit Termin: Flohm
 Haushalts-/Wohnungsauflösungen mit Verkauf vor Ort, Trödel-/Antikmärkte, Kinderflohmärkte und Basare.
 NICHT hinein gehören: einzelne Artikel oder Konvolute zum Kauf ("Vase aus Haushaltsauflösung", "Karton Flohmarktartikel"),
 Werbung von Entrümpelungs-/Ankauf-Firmen, Gesuche, Nachrichten oder Berichte über vergangene Märkte, Stände zu verkaufen.
+Kategorien: "dorf" = Dorf-Flohmarkt (ein ganzes Dorf macht mit), "strasse" = Straßen-Flohmarkt (Anwohner einer
+Straße/eines Viertels verkaufen vor ihren Häusern), "hof" = einzelner Hof-/Garagenflohmarkt, "haushalt" = Haushaltsauflösung,
+"kinder" = Kinderflohmarkt/Basar, "antik" = Trödel-/Antikmarkt, "flohmarkt" = sonstiger Flohmarkt.
 Prüfe außerdem Datum (Bezugsdatum steht dabei), Uhrzeit und Adresse und gib sie korrigiert zurück, wenn der Text sie
 eindeutig nennt. Erfinde nichts: Was nicht im Text steht, bleibt leer (null)."""
 
 EXTRACT_SYSTEM = """Du liest Termine aus dem Text einer Webseite für eine Flohmarkt-App (Region Kiel / Schleswig-Holstein).
 Gib nur Termine zurück, die ab dem Bezugsdatum stattfinden: Flohmärkte, Hof-/Garagenflohmärkte, Haushaltsauflösungen mit
 Verkauf vor Ort, Trödel-/Antikmärkte, Kinderflohmärkte, Basare. Keine Nachrichten, keine Werbung, keine vergangenen Termine.
+Kategorien: "dorf" = Dorf-Flohmarkt, "strasse" = Straßen-Flohmarkt, "hof", "haushalt", "kinder", "antik", "flohmarkt".
 Datum immer als YYYY-MM-DD (fehlt das Jahr, das nächste passende ab dem Bezugsdatum). Erfinde nichts."""
 
 

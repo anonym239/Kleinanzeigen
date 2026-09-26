@@ -1,7 +1,7 @@
 import pytest
 from datetime import date
 
-from app.classify import classify, is_service_ad
+from app.classify import classify, is_event_ad, is_service_ad
 from app.sources import events_page, kleinanzeigen
 
 SEARCH_HTML = """
@@ -106,6 +106,22 @@ def test_classify():
     assert classify("Flohmarkt am Rathaus") == "flohmarkt"
     assert classify("Verkaufe Sofa") == "sonstiges"
     assert classify("Verkaufe alles", "wegen Wohnungsauflösung") == "haushalt"
+
+
+def test_classify_dorf_und_strasse():
+    # Die besten Flohmärkte bekommen eigene Kategorien – auch mit Bindestrich, Leerzeichen oder "ss"
+    assert classify("Schalkholzer Dorfflohmarkt") == "dorf"
+    assert classify("Dorf Flohmarkt mit Spanferkel und anderen Köstlichkeiten") == "dorf"
+    assert classify("Großer Dorf-Flohmarkt in Probsteierhagen") == "dorf"
+    assert classify("Straßen-Flohmarkt am 27.09.2026") == "strasse"
+    assert classify("Straßen Flohmarkt in Neumünster Faldera") == "strasse"
+    assert classify("Flohmarkt Strassenflohmarkt Innenstadt Wilster am 26.9.26") == "strasse"
+    assert classify("Hofflohmarkt beim Straßenflohmarkt Wik") == "strasse"
+    # "dorf" als Teil eines Ortsnamens ist kein Dorf-Flohmarkt
+    assert classify("Mielkendorf Flohmarkt") == "flohmarkt"
+    assert classify("Herbstflohmarkt im Waldorfkindergarten") == "flohmarkt"
+    assert classify("Flohmarkt in der Heitmannstraße 65") == "flohmarkt"
+    assert is_event_ad("Dorf-Flohmarkt Schönkirchen", "Am Samstag 10-16 Uhr im ganzen Ort", "", True, True)
 
 
 def test_service_detection():

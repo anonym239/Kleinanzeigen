@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 
 from . import ai_review, db, geo, scraper
-from .classify import CATEGORY_LABELS
+from .classify import CATEGORY_LABELS, TOP_CATEGORIES, classify
 
 log = logging.getLogger("build_site")
 STATIC = Path(__file__).resolve().parent / "static"
@@ -129,6 +129,9 @@ def export(out: Path, settings: dict) -> int:
             if geo.haversine_km(home[0], home[1], e["lat"], e["lon"]) > radius + 5:
                 continue
         item = {k: e.get(k) for k in keep}
+        # Dorf-/Straßen-Flohmarkt im Text schlägt jede andere Einordnung (auch von Claude oder älteren Läufen)
+        if (top := classify(item["title"] or "", item["description"] or "")) in TOP_CATEGORIES:
+            item["category"] = top
         item["description"] = (item["description"] or "")[:1500]
         item["date_certain"] = bool(item["date_certain"])
         item["is_service"] = bool(item["is_service"])

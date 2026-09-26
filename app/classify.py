@@ -5,6 +5,12 @@ import re
 
 # Reihenfolge = Priorität (spezifisch vor allgemein)
 CATEGORIES: list[tuple[str, str, list[str]]] = [
+    # Die besten Flohmärkte stehen vorn und werden in der App besonders hervorgehoben (TOP_CATEGORIES)
+    ("dorf", "Dorf-Flohmärkte", ["dorfflohmarkt", "dorfflohmärkte", "dorftrödel", "dorfweiter flohmarkt",
+                                 "dorfweite flohmarkt", "flohmarkt im ganzen dorf", "flohmarkt durchs dorf"]),
+    ("strasse", "Straßen-Flohmärkte", ["straßenflohmarkt", "strassenflohmarkt", "straßenflohmärkte",
+                                       "strassenflohmärkte", "straßentrödel", "strassentrödel",
+                                       "nachbarschaftsflohmarkt"]),
     ("kinder", "Kinder & Basar", ["kinderflohmarkt", "kinderbasar", "kleiderbasar", "baby basar", "babybasar",
                                    "spielzeugbasar", "kinderkleiderbasar", "basar"]),
     ("haushalt", "Haushaltsauflösung", ["haushaltsauflösung", "haushaltsaufloesung", "wohnungsauflösung",
@@ -12,13 +18,14 @@ CATEGORIES: list[tuple[str, str, list[str]]] = [
                                          "hausaufloesung", "kellerauflösung", "dachbodenauflösung", "räumungsverkauf",
                                          "alles muss raus", "auflösung"]),
     ("hof", "Hof- & Garagenflohmarkt", ["hofflohmarkt", "garagenflohmarkt", "hausflohmarkt", "gartenflohmarkt",
-                                        "straßenflohmarkt", "strassenflohmarkt", "hofverkauf", "garagenverkauf",
+                                        "hofverkauf", "garagenverkauf",
                                         "hofflohmärkte", "privatflohmarkt", "kellerflohmarkt", "scheunenflohmarkt"]),
     ("antik", "Trödel- & Antikmarkt", ["trödelmarkt", "troedelmarkt", "antikmarkt", "antikmärkte", "sammlermarkt",
                                        "trödel", "antiquitätenmarkt", "büchermarkt"]),
     ("flohmarkt", "Flohmarkt", ["flohmarkt", "flohmärkte", "nachtflohmarkt", "hallenflohmarkt", "fundgrube"]),
 ]
 CATEGORY_LABELS = {key: label for key, label, _ in CATEGORIES} | {"sonstiges": "Sonstiges"}
+TOP_CATEGORIES = ("dorf", "strasse")
 
 SERVICE_WORDS = [
     "entrümpelung", "entrümpeln", "entruempelung", "besenrein", "wir bieten", "bieten wir", "bieten ihnen",
@@ -32,8 +39,8 @@ WANTED_RE = re.compile(r"^\s*(suche|gesucht|biete\s+hilfe|ankauf)\b", re.I)
 
 
 def classify(title: str, text: str = "") -> str:
-    blob = f"{title} {text}".lower()
-    t = title.lower()
+    t = _JOIN_FLOH.sub(lambda m: m.group(1) + "flohmarkt", title or "").lower()
+    blob = t + " " + _JOIN_FLOH.sub(lambda m: m.group(1) + "flohmarkt", text or "").lower()
     for key, _, words in CATEGORIES:
         if any(w in t for w in words):
             return key
@@ -75,7 +82,7 @@ _ON_SITE = re.compile(
 )
 # Eindeutige Veranstaltungswörter (anders als "Flohmarkt"/"Trödel", die oft nur Schlagwort für Einzelartikel sind)
 _STRONG_WORDS = re.compile(
-    r"hofflohmarkt|garagenflohmarkt|hausflohmarkt|gartenflohmarkt|straßenflohmarkt|strassenflohmarkt|kellerflohmarkt|"
+    r"dorfflohmarkt|hofflohmarkt|garagenflohmarkt|hausflohmarkt|gartenflohmarkt|straßenflohmarkt|strassenflohmarkt|kellerflohmarkt|"
     r"kinderflohmarkt|nachtflohmarkt|hallenflohmarkt|haushaltsauflösung|haushaltsaufloesung|wohnungsauflösung|"
     r"wohnungsaufloesung|hausauflösung|hausaufloesung|basar|bazar|trödelmarkt|troedelmarkt|antikmarkt|"
     r"räumungsverkauf|garagenverkauf|hofverkauf|nummernflohmarkt",
@@ -83,8 +90,8 @@ _STRONG_WORDS = re.compile(
 )
 # "Garagen-Flohmarkt", "Hof- und Garagen Flohmarkt" -> "Garagenflohmarkt", "Hofflohmarkt"
 _JOIN_FLOH = re.compile(
-    r"\b(hof|garagen|haus|garten|keller|straßen|strassen|kinder|nacht|hallen)[\s-]*"
-    r"(?:und\s+(?:hof|garagen|haus|garten|keller)[\s-]*)?flohmarkt",
+    r"\b(dorf|hof|garagen|haus|garten|keller|straßen|strassen|kinder|nacht|hallen)[\s-]*"
+    r"(?:und\s+(?:hof|garagen|haus|garten|keller)[\s-]*)?flohm(?:arkt|ärkte|aerkte)",
     re.I,
 )
 _PRICE_NUM = re.compile(r"(\d[\d.]*)(?:,\d+)?\s*€")

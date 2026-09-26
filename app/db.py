@@ -67,7 +67,7 @@ DEFAULT_SETTINGS = {
     "refresh_hours": 3,
     "search_terms": [
         "Flohmarkt", "Hofflohmarkt", "Garagenflohmarkt", "Haushaltsauflösung",
-        "Wohnungsauflösung", "Nachlass Verkauf", "Trödelmarkt", "Kinderflohmarkt",
+        "Wohnungsauflösung", "Nachlass Verkauf", "Trödelmarkt", "Kinderflohmarkt", "Dorfflohmarkt", "Straßenflohmarkt",
     ],
     "kleinanzeigen_enabled": True,
     "calendars_enabled": True,
