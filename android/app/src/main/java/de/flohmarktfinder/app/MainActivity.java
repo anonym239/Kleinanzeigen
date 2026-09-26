@@ -20,7 +20,9 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
 
+import androidx.webkit.WebSettingsCompat;
 import androidx.webkit.WebViewAssetLoader;
+import androidx.webkit.WebViewFeature;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -76,6 +78,12 @@ public class MainActivity extends Activity {
         // Schriftgröße des Handys übernehmen wie andere Apps (begrenzt, damit das Layout ruhig bleibt)
         float scale = getResources().getConfiguration().fontScale;
         ws.setTextZoom(Math.round(Math.max(0.85f, Math.min(1.3f, scale)) * 100));
+
+        // Kein automatisches Abdunkeln der Seite – sie hat ein eigenes, gut lesbares dunkles Design
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) {
+            WebSettingsCompat.setAlgorithmicDarkeningAllowed(ws, false);
+        }
+        if (Build.VERSION.SDK_INT >= 29) webView.setForceDarkAllowed(false);
 
         webView.addJavascriptInterface(new Bridge(), "AndroidApp");
         webView.setWebChromeClient(new android.webkit.WebChromeClient()); // Dialoge (z.B. PIN-Abfrage) erlauben
@@ -207,7 +215,7 @@ public class MainActivity extends Activity {
                 "(function(){var d=[...document.querySelectorAll('dialog[open]')];" +
                 "var f=document.querySelector('.filters.open');" +
                 "if(d.length){d.forEach(function(x){x.close()});return 'handled'}" +
-                "if(f){f.classList.remove('open');return 'handled'}return 'exit'})()",
+                "if(f){f.classList.remove('open');document.documentElement.classList.remove('filters-open');return 'handled'}return 'exit'})()",
                 value -> {
                     if (value == null || !value.contains("handled")) {
                         MainActivity.super.onBackPressed();
@@ -286,6 +294,52 @@ public class MainActivity extends Activity {
                 return;
             }
             new Thread(() -> Reminder.notifyWeekend(getApplicationContext())).start();
+        }
+
+        /** PDF (Base64) im Ordner "Download" speichern und gleich öffnen. */
+        @JavascriptInterface
+        public void savePdf(String base64, String fileName) {
+            byte[] data;
+            try {
+                data = android.util.Base64.decode(base64, android.util.Base64.DEFAULT);
+            } catch (IllegalArgumentException e) {
+                return;
+            }
+            String name = fileName.replaceAll("[^A-Za-z0-9._-]", "_");
+            try {
+                Uri uri;
+                if (Build.VERSION.SDK_INT >= 29) {
+                    android.content.ContentValues v = new android.content.ContentValues();
+                    v.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, name);
+                    v.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "application/pdf");
+                    v.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS);
+                    uri = getContentResolver().insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
+                    if (uri == null) throw new IOException("kein Speicherplatz");
+                    try (java.io.OutputStream out = getContentResolver().openOutputStream(uri)) {
+                        if (out == null) throw new IOException("nicht beschreibbar");
+                        out.write(data);
+                    }
+                } else {
+                    File dir = getExternalFilesDir(android.os.Environment.DIRECTORY_DOCUMENTS);
+                    File f = new File(dir, name);
+                    try (FileOutputStream out = new FileOutputStream(f)) { out.write(data); }
+                    runOnUiThread(() -> Toast.makeText(MainActivity.this, "PDF gespeichert: " + f.getAbsolutePath(), Toast.LENGTH_LONG).show());
+                    return;
+                }
+                final Uri saved = uri;
+                runOnUiThread(() -> {
+                    Toast.makeText(MainActivity.this, "PDF gespeichert unter „Downloads“", Toast.LENGTH_LONG).show();
+                    Intent view = new Intent(Intent.ACTION_VIEW).setDataAndType(saved, "application/pdf")
+                            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    try {
+                        startActivity(view);
+                    } catch (ActivityNotFoundException ignored) {
+                        // keine PDF-App: Datei liegt trotzdem in Downloads
+                    }
+                });
+            } catch (IOException | SecurityException e) {
+                runOnUiThread(() -> Toast.makeText(MainActivity.this, "PDF konnte nicht gespeichert werden", Toast.LENGTH_LONG).show());
+            }
         }
 
         @SuppressWarnings("deprecation")

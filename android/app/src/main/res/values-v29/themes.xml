@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Kein automatisches Abdunkeln durch Android (z.B. Samsung): das machte goldene Flächen mit heller Schrift unlesbar -->
+    <style name="AppTheme" parent="Base.AppTheme">
+        <item name="android:forceDarkAllowed">false</item>
+    </style>
+</resources>

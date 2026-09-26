@@ -1,6 +1,6 @@
 /* Service Worker: App offline startbar machen, letzte Termine zwischenspeichern */
-const CACHE = "flohmarkt-v3";
-const SHELL = ["./", "static/style.css", "static/app.js", "static/mode.js", "icon.svg", "static/icon-192.png", "manifest.webmanifest",
+const CACHE = "flohmarkt-v4";
+const SHELL = ["./", "static/style.css", "static/app.js", "static/pdf.js", "static/mode.js", "icon.svg", "static/icon-192.png", "manifest.webmanifest",
   "static/vendor/leaflet/leaflet.js", "static/vendor/leaflet/leaflet.css"];
 const SCOPE = new URL(self.registration.scope).pathname;
 const rel = (pathname) => (pathname.startsWith(SCOPE) ? pathname.slice(SCOPE.length) : pathname) || "./";

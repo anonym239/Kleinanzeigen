@@ -105,6 +105,10 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18M6 12h12M10 19h4"/></svg>
           Filter <span class="badge-count" id="filterCount" hidden></span>
         </button>
+        <button class="btn ghost pdf-btn" id="pdfBtn" type="button" title="Ausgewählte Termine als PDF (eine A4-Seite mit Karte und Route)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z"/><path d="M14 3v5h5M12 11v6M9.5 14.5 12 17l2.5-2.5"/></svg>
+          PDF
+        </button>
         <div class="view-toggle" role="tablist" aria-label="Ansicht">
           <button type="button" role="tab" id="viewList" aria-selected="true">Liste</button>
           <button type="button" role="tab" id="viewMap" aria-selected="false">Karte</button>
@@ -273,6 +277,20 @@
   </form>
 </dialog>
 
+<!-- PDF-Auswahl -->
+<div class="pdf-bar" id="pdfBar" hidden>
+  <div class="pdf-bar-top">
+    <strong id="pdfCount"></strong>
+    <span class="hint">Antippen wählt ab oder wieder aus – in der Liste oder auf der Karte</span>
+  </div>
+  <div class="pdf-bar-acts">
+    <button class="link-btn" type="button" id="pdfAll">Alle</button>
+    <button class="link-btn" type="button" id="pdfNone">Keine</button>
+    <button class="btn ghost" type="button" id="pdfCancel">Abbrechen</button>
+    <button class="btn primary" type="button" id="pdfMake">PDF erstellen</button>
+  </div>
+</div>
+
 <!-- Wochenend-Tour -->
 <dialog id="tourDialog" class="sheet">
   <div class="sheet-inner" id="tourBody"></div>
@@ -282,6 +300,7 @@
 
 <script src="static/mode.js"></script>
 <script src="static/vendor/leaflet/leaflet.js"></script>
+<script src="static/pdf.js"></script>
 <script src="static/app.js"></script>
 </body>
 </html>

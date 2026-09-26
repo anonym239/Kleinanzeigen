@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="AppTheme" parent="@android:style/Theme.Material.Light.NoActionBar">
+    <!-- Hell; im Dunkelmodus des Handys gilt values-night (die Seite schaltet dann auf ihr eigenes dunkles Design) -->
+    <style name="Base.AppTheme" parent="@android:style/Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@color/paper</item>
         <item name="android:colorPrimary">@color/brand</item>
         <item name="android:colorPrimaryDark">@color/brand</item>
@@ -9,4 +10,5 @@
         <item name="android:navigationBarColor">@color/paper</item>
         <item name="android:windowLightNavigationBar">true</item>
     </style>
+    <style name="AppTheme" parent="Base.AppTheme" />
 </resources>

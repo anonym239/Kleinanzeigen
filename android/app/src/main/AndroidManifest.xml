@@ -17,6 +17,10 @@
             <data android:mimeType="vnd.android.cursor.dir/event" />
         </intent>
         <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="application/pdf" />
+        </intent>
+        <intent>
             <action android:name="android.intent.action.SEND" />
             <data android:mimeType="text/plain" />
         </intent>

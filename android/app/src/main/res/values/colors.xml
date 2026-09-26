@@ -2,6 +2,7 @@
 <resources>
     <color name="brand">#0E6F60</color>
     <color name="paper">#EEF2F0</color>
+    <color name="paper_dark">#101614</color>
     <color name="tag">#F3C63F</color>
     <color name="tag_ink">#3A2C00</color>
     <color name="icon_blue">#1560A8</color>

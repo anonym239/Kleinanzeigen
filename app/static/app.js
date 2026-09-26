@@ -33,6 +33,7 @@ const S = {
   filters: { ...DEFAULT_FILTERS, ...savedFilters() },
   view: store.get("view", "list") === "map" ? "map" : "list",
   map: null, mapLayer: null, prevVisit: 0, polling: null,
+  pdf: null, // PDF-Auswahl: { sel: Set von Termin-IDs }
 };
 
 /* ---------- Hilfsfunktionen ---------- */
@@ -404,7 +405,8 @@ function cardHTML(ev) {
       : ["krencky24.de", "meine-flohmarkt-termine.de"].includes(ev.source) ? "Markt-Kalender" : esc(ev.source)}</span>`,
   ].join("");
   return `
-  <article class="card ${ev.hidden ? "is-hidden" : ""} ${isTop(ev) ? "is-top" : ""}" style="--cat: var(--c-${k})" data-id="${esc(ev.id)}" tabindex="0">
+  <article class="card ${ev.hidden ? "is-hidden" : ""} ${isTop(ev) ? "is-top" : ""} ${S.pdf?.sel.has(ev.id) ? "picked" : ""}" style="--cat: var(--c-${k})" data-id="${esc(ev.id)}" tabindex="0">
+    <span class="pick" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span>
     ${media}
     <div class="card-body">
       <div class="card-top">${pills}</div>
@@ -521,6 +523,7 @@ function render() {
   renderCats();
   renderActiveFilters();
   renderMemoryHints();
+  renderPdfBar();
   renderList(list);
   applyView();
   if (S.map) renderMap(list);
@@ -576,11 +579,13 @@ function renderMap(list, fit = true) {
       title: ev.title,
       icon: L.divIcon({
         className: "",
-        html: `<div class="pin ${ev.favorite ? "fav" : ""} ${isTop(ev) ? "top" : ""}" style="--cat: var(--c-${k}); --s: ${size}px">${catIcon(k)}</div>`,
+        html: `<div class="pin ${ev.favorite ? "fav" : ""} ${isTop(ev) ? "top" : ""} ${S.pdf && !S.pdf.sel.has(ev.id) ? "off" : ""}" style="--cat: var(--c-${k}); --s: ${size}px">${catIcon(k)}</div>`,
         iconSize: [size, size], iconAnchor: [size / 2, size], popupAnchor: [0, -size],
       }),
     });
-    m.bindPopup(`<div class="map-pop"><strong>${esc(ev.title)}</strong>${dateLine(ev)}<br>${placeLine(ev)}<br><button class="btn primary" type="button" data-open="${esc(ev.id)}">Details</button></div>`);
+    m.bindPopup(`<div class="map-pop"><strong>${esc(ev.title)}</strong>${dateLine(ev)}<br>${placeLine(ev)}<br>${S.pdf
+      ? `<button class="btn ${S.pdf.sel.has(ev.id) ? "primary" : "ghost"}" type="button" data-pick="${esc(ev.id)}">${S.pdf.sel.has(ev.id) ? "✓ Im PDF – abwählen" : "Fürs PDF auswählen"}</button>`
+      : `<button class="btn primary" type="button" data-open="${esc(ev.id)}">Details</button>`}</div>`);
     m.addTo(S.mapLayer);
     pts.push([ev.lat, ev.lon]);
   }
@@ -600,7 +605,8 @@ function openDetail(id) {
     </div>
     ${ev.image ? `<img class="detail-img" src="${esc(ev.image)}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : ""}
     <div class="card-top">
-      <span class="pill cat" style="--cat: var(--c-${CAT_COLORS.includes(ev.category) ? ev.category : "sonstiges"})">${esc(ev.category_label)}</span>
+      ${isTop(ev) ? `<span class="pill top">★ Top-Tipp</span>` : ""}
+      <span class="pill cat ${isTop(ev) ? "top-cat" : ""}" style="--cat: var(--c-${catKey(ev.category)})">${catIcon(catKey(ev.category), "sm")}${esc(ev.category_label)}</span>
       ${isNew(ev) ? `<span class="pill new">NEU</span>` : ""}
       ${ev.is_service ? `<span class="pill warn">Vermutlich Firma/Werbung</span>` : ""}
     </div>
@@ -964,15 +970,15 @@ function pushReminder() {
 
 function checkAppUpdate() {
   const el = $("#appUpdate");
-  const old = window.FLOHMARKT_APP && !appHas("setReminder");
-  const snoozed = Date.now() - store.get("updateSnooze", 0) < 3 * 86400000;
+  const old = window.FLOHMARKT_APP && !appHas("savePdf"); // neueste Funktion der App
+  const snoozed = Date.now() - store.get("updateSnooze2", 0) < 3 * 86400000;
   el.hidden = !old || snoozed;
   if (el.hidden) return;
-  el.innerHTML = `<span>📲 <strong>Neue App-Version:</strong> Freitags-Erinnerung fürs Wochenende. Einfach herunterladen und über die alte App installieren – alles Gemerkte bleibt.</span>
+  el.innerHTML = `<span>📲 <strong>Neue App-Version:</strong> PDF speichern, Freitags-Erinnerung fürs Wochenende, bessere Darstellung. Einfach herunterladen und über die alte App installieren – alles Gemerkte bleibt.</span>
     <span class="notice-acts"><button class="btn small" type="button" id="updateNow">Jetzt aktualisieren</button>
     <button class="link-btn" type="button" id="updateLater">Später</button></span>`;
   $("#updateNow").addEventListener("click", () => { if (appHas("openUrl")) window.AndroidApp.openUrl(APK_URL); else openExternal(APK_URL); });
-  $("#updateLater").addEventListener("click", () => { store.set("updateSnooze", Date.now()); el.hidden = true; });
+  $("#updateLater").addEventListener("click", () => { store.set("updateSnooze2", Date.now()); el.hidden = true; });
 }
 
 function syncReminderSettings() {
@@ -1264,6 +1270,12 @@ function resetFilters() {
   render();
 }
 
+function setFiltersOpen(open) {
+  $("#filters").classList.toggle("open", open);
+  document.documentElement.classList.toggle("filters-open", open);
+  if (open) $("#filters").scrollTop = 0;
+}
+
 function measureTopbar() {
   document.documentElement.style.setProperty("--topbar-h", `${$(".topbar").offsetHeight}px`);
 }
@@ -1272,7 +1284,7 @@ function bind() {
   $(".brand").addEventListener("click", (e) => {
     e.preventDefault();
     for (const d of $$("dialog[open]")) d.close();
-    $("#filters").classList.remove("open");
+    setFiltersOpen(false);
     S.filters.range = "weekend";
     S.view = "list";
     if (S.events.length) render(); else startLoad();
@@ -1299,9 +1311,9 @@ function bind() {
   $("#sort").addEventListener("change", (e) => { S.filters.sort = e.target.value; render(); });
   $("#resetFilters").addEventListener("click", resetFilters);
 
-  $("#openFilters").addEventListener("click", () => $("#filters").classList.add("open"));
-  $("#closeFilters").addEventListener("click", () => $("#filters").classList.remove("open"));
-  $("#showResults").addEventListener("click", () => { $("#filters").classList.remove("open"); window.scrollTo({ top: 0 }); });
+  $("#openFilters").addEventListener("click", () => setFiltersOpen(true));
+  $("#closeFilters").addEventListener("click", () => setFiltersOpen(false));
+  $("#showResults").addEventListener("click", () => { setFiltersOpen(false); window.scrollTo({ top: 0 }); });
 
   $("#viewList").addEventListener("click", () => { S.view = "list"; store.set("view", "list"); render(); });
   $("#viewFav").addEventListener("click", () => { S.view = "fav"; store.set("view", "fav"); render(); window.scrollTo({ top: 0 }); });
@@ -1325,6 +1337,7 @@ function bind() {
       return;
     }
     const card = e.target.closest(".card"); if (!card) return;
+    if (S.pdf) { e.preventDefault(); togglePick(card.dataset.id); return; } // PDF-Auswahl: Antippen = an/abwählen
     const ev = S.events.find((x) => x.id === card.dataset.id);
     const act = e.target.closest("[data-act]");
     if (act?.dataset.act === "link") return;
@@ -1341,7 +1354,12 @@ function bind() {
   $("#list").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && e.target.classList.contains("card")) openDetail(e.target.dataset.id);
   });
-  $("#map").addEventListener("click", (e) => { const b = e.target.closest("[data-open]"); if (b) openDetail(b.dataset.open); });
+  $("#map").addEventListener("click", (e) => {
+    const pick = e.target.closest("[data-pick]");
+    if (pick) { togglePick(pick.dataset.pick); S.map.closePopup(); return; }
+    const b = e.target.closest("[data-open]"); if (b) openDetail(b.dataset.open);
+  });
+  bindPdf();
   $("#memoryHints").addEventListener("click", (e) => {
     const b = e.target.closest("[data-goto-fav],[data-open]"); if (!b) return;
     if (b.dataset.seen) { const seen = store.get("yearlySeen", {}); seen[b.dataset.seen] = 1; store.set("yearlySeen", seen); }
