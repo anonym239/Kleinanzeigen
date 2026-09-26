@@ -400,13 +400,6 @@ html.fav-view .results > .cat-chips, html.fav-view .day-overview { display: none
 .cat-chip.top { border-color: color-mix(in srgb, var(--top) 70%, var(--line)); background: var(--top-soft); font-weight: 700; }
 .cat-chip.top[aria-pressed="true"] { border-color: var(--top); background: color-mix(in srgb, var(--top) 30%, var(--surface)); }
 
-/* Hinweis „Filter aktiv“ über der Liste */
-.active-filters {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 12px; padding: 10px 12px;
-  border-radius: var(--radius); background: var(--accent-soft); border: 1px solid var(--accent); color: var(--ink);
-}
-.active-filters[hidden] { display: none; }
-.active-filters span { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
 .btn.small { min-height: 38px; padding: 6px 14px; background: var(--accent); color: var(--accent-ink); }
 
 /* ---------- Nichts darf seitlich überstehen (Handy, große Schrift, lange Wörter) ---------- */
@@ -542,3 +535,13 @@ html.pdf-mode .layout { padding-bottom: 170px; }
 .pin.off { opacity: .35; filter: grayscale(1); }
 html.pdf-mode .toast { top: calc(var(--topbar-h, 120px) + 10px); bottom: auto; }
 @media (max-width: 600px) { .pdf-bar .hint { display: none; } .pdf-bar { padding-top: 8px; } }
+
+/* Uhrzeit der Erinnerung */
+.time-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.time-row select { flex: 1 1 160px; width: auto; }
+.time-row input { flex: 1 1 120px; width: auto; }
+
+/* Tageszeile klebt ohne Spalt unter der Kopfzeile (verdeckt auch Rundungsreste) */
+.day-head { top: calc(var(--topbar-h, 120px) - 1px); }
+.day-head::before { content: ""; position: absolute; left: -16px; right: -16px; top: -12px; height: 13px; background: var(--paper); pointer-events: none; }
+.seg button { flex: 1 1 auto; }
