@@ -501,3 +501,44 @@ details.fav-sec[open] summary h2::after { transform: rotate(90deg); }
 @media (max-width: 420px) {
   .view-toggle button { padding: 8px 4px; font-size: .92rem; white-space: normal; line-height: 1.2; }
 }
+
+/* Top-Tipp-Knöpfe: ausgewählt = kräftiges Gold mit dunkler Schrift (in hell und dunkel gut lesbar) */
+.cat-chip.top[aria-pressed="true"] { background: var(--top); border-color: var(--top); color: #2a1f00; }
+.cat-chip.top[aria-pressed="true"] .cat-ico, .cat-chip.top[aria-pressed="true"] .n { color: #2a1f00; }
+.pill.cat.top-cat { background: var(--top); color: #2a1f00; }
+* { -webkit-tap-highlight-color: transparent; }
+
+/* Filter auf dem Handy: Fenster genau so hoch wie der Bildschirm, Inhalt scrollt darin */
+@media (max-width: 899px) {
+  .filters { align-self: stretch; justify-self: stretch; height: auto; max-height: none; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+  html.filters-open, html.filters-open body { overflow: hidden; }
+}
+
+/* ---------- PDF-Auswahl ---------- */
+.card .pick { display: none; }
+html.pdf-mode .card { cursor: pointer; }
+html.pdf-mode .card .card-actions, html.pdf-mode .fab, html.pdf-mode .memory-hints { display: none; }
+html.pdf-mode .card .pick {
+  display: grid; place-items: center; position: absolute; top: -8px; left: -8px; z-index: 2; width: 34px; height: 34px;
+  border-radius: 50%; border: 2.5px solid var(--line); background: var(--surface); box-shadow: var(--shadow);
+}
+html.pdf-mode .card .pick svg { width: 20px; height: 20px; stroke-width: 3; color: transparent; }
+html.pdf-mode .card.picked .pick { background: var(--accent); border-color: var(--accent); }
+html.pdf-mode .card.picked .pick svg { color: var(--accent-ink); }
+html.pdf-mode .card:not(.picked) { opacity: .55; }
+html.pdf-mode .card.picked { outline: 2.5px solid var(--accent); outline-offset: 1px; }
+html.pdf-mode .list { padding-left: 6px; }
+html.pdf-mode .layout { padding-bottom: 170px; }
+.pdf-btn[aria-pressed="true"], html.pdf-mode .pdf-btn { border-color: var(--accent); background: var(--accent-soft); }
+.pdf-bar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 650; background: var(--surface); border-top: 1px solid var(--line);
+  box-shadow: 0 -6px 20px rgba(0,0,0,.15); padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px));
+  display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between;
+}
+.pdf-bar[hidden] { display: none; }
+.pdf-bar-top { display: flex; flex-direction: column; min-width: 0; flex: 1 1 220px; }
+.pdf-bar-acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; flex: 1 1 auto; }
+.pdf-bar-acts .btn { flex: 1 1 auto; }
+.pin.off { opacity: .35; filter: grayscale(1); }
+html.pdf-mode .toast { top: calc(var(--topbar-h, 120px) + 10px); bottom: auto; }
+@media (max-width: 600px) { .pdf-bar .hint { display: none; } .pdf-bar { padding-top: 8px; } }
