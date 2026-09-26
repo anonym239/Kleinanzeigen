@@ -408,3 +408,96 @@ html.fav-view .results > .cat-chips, html.fav-view .day-overview { display: none
 .active-filters[hidden] { display: none; }
 .active-filters span { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
 .btn.small { min-height: 38px; padding: 6px 14px; background: var(--accent); color: var(--accent-ink); }
+
+/* ---------- Nichts darf seitlich überstehen (Handy, große Schrift, lange Wörter) ---------- */
+html, body { max-width: 100%; overflow-x: hidden; overflow-x: clip; }
+h1, h2, h3, p, small, strong, dd, .pill, .meta span, .day-tag, .count, .notice span, .mem-main, .tour-stop span {
+  overflow-wrap: anywhere; hyphens: auto; -webkit-hyphens: auto;
+}
+.layout, .results, .list, .card, .card-body, .meta div, .meta span, .results-bar, .results-tools { min-width: 0; }
+.card { grid-template-columns: 112px minmax(0, 1fr); max-width: 100%; }
+.card-top .pill { max-width: 100%; white-space: normal; text-align: left; }
+input, select, textarea, button { max-width: 100%; }
+.results-tools { flex-wrap: wrap; }
+.view-toggle { flex: 1 1 240px; min-width: 0; }
+.view-toggle button { flex: 1 1 auto; min-width: 0; }
+.day-head { flex-wrap: wrap; row-gap: 4px; }
+.day-tag { max-width: 100%; }
+.detail-actions .btn, .sheet-actions .btn { white-space: normal; text-align: center; }
+.home-chip { max-width: 100%; }
+@media (max-width: 899px) {
+  .card { grid-template-columns: 84px minmax(0, 1fr); }
+  .day-tag { white-space: normal; }
+  .results-bar .count { flex: 1 1 100%; }
+  .detail-actions .btn { flex: 1 1 calc(50% - 8px); }
+}
+@media (max-width: 380px) {
+  .card { grid-template-columns: 64px minmax(0, 1fr); gap: 10px; padding: 10px; }
+  .thumb { width: 64px; height: 64px; }
+  .layout { padding-inline: 12px; }
+  .topbar { padding-inline: 12px; }
+  .card-actions .act { flex: 1 1 auto; }
+  .card .more { flex-basis: 100%; text-align: right; }
+}
+html:not(.in-app) .app-only { display: none !important; }
+
+/* ---------- Hinweise über der Liste ---------- */
+.memory-hints { display: flex; flex-direction: column; gap: 10px; }
+.memory-hints:empty { display: none; }
+.notice {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 12px; border-radius: var(--radius);
+  background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow);
+}
+.notice > span:first-child { flex: 1 1 220px; min-width: 0; }
+.notice.gold { border-color: var(--top); background: var(--top-soft); }
+.notice-acts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+#appUpdate { border-color: var(--accent); background: var(--accent-soft); }
+
+/* ---------- Besucht & Bewertung ---------- */
+.pill.visited { background: color-mix(in srgb, var(--accent) 14%, var(--surface)); color: var(--accent); }
+.pill.yearly { background: var(--top-soft); color: var(--ink); border: 1px solid var(--top); }
+.stars-sm { color: var(--top); letter-spacing: 1px; }
+.visit-box { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: var(--radius); background: var(--surface-2); }
+.visit-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.visit-row .btn { flex: 1 1 160px; }
+.stars { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; }
+.stars .hint { flex-basis: 100%; }
+.stars button {
+  border: 0; background: none; cursor: pointer; font-size: 1.6rem; line-height: 1; padding: 2px; min-width: 42px; min-height: 44px;
+  color: var(--line);
+}
+.stars button[aria-pressed="true"] { color: var(--top); }
+.btn.small.on { background: var(--top); color: #2a1f00; }
+
+/* ---------- Ansicht „Gemerkt“ ---------- */
+.fav-sec { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.fav-sec h2, .fav-title { font-size: 1.2rem; display: flex; align-items: center; gap: 8px; }
+.fav-title { margin-top: 6px; }
+.fav-sec.past { border-color: color-mix(in srgb, var(--tag) 60%, var(--line)); }
+details.fav-sec summary { cursor: pointer; list-style: none; }
+details.fav-sec summary::-webkit-details-marker { display: none; }
+details.fav-sec summary h2::after { content: "›"; margin-left: auto; transition: transform .2s; }
+details.fav-sec[open] summary h2::after { transform: rotate(90deg); }
+.tour-days { display: flex; flex-wrap: wrap; gap: 8px; }
+.tour-days .btn { flex: 1 1 200px; }
+.tour-days .rn { font-weight: 400; color: var(--ink-soft); }
+.mem-row { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding-top: 10px; border-top: 1px solid var(--line); }
+.mem-main { flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.mem-main small { color: var(--ink-soft); }
+.mem-main .ok { color: var(--accent); }
+.mem-acts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* ---------- Tour ---------- */
+.tour-sum { margin: 0; }
+.tour-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; counter-reset: stop; }
+.tour-home { color: var(--ink-soft); font-weight: 700; padding-left: 4px; }
+.tour-stop { counter-increment: stop; border: 1px solid var(--line); border-left: 5px solid var(--cat); border-radius: var(--radius); padding: 8px 10px; }
+.tour-stop .switch { align-items: flex-start; }
+.tour-stop .switch span::before { content: counter(stop) ". "; font-weight: 800; }
+.tour-stop small { display: block; color: var(--ink-soft); }
+.tour-off { opacity: .7; }
+/* Wischleisten (Zeitraum, Arten) dürfen breiter sein als der Bildschirm – ihre Knöpfe nicht umbrechen */
+.range-bar button, .results > .cat-chips .cat-chip { max-width: none; white-space: nowrap; }
+@media (max-width: 420px) {
+  .view-toggle button { padding: 8px 4px; font-size: .92rem; white-space: normal; line-height: 1.2; }
+}

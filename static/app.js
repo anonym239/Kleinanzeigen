@@ -320,7 +320,7 @@ function passesBase(ev, f, skipCats = false) {
 function filtered() {
   const f = S.filters;
   const list = S.view === "fav"
-    ? S.events.filter((ev) => ev.favorite && !ev.hidden)
+    ? S.events.filter((ev) => ev.favorite && !ev.hidden && !isPast(ev))
     : S.events.filter((ev) => passesBase(ev, f));
   const byNew = (a, b) => b.first_seen - a.first_seen;
   if (f.sort === "distance") list.sort((a, b) => (a.distance_km ?? 9999) - (b.distance_km ?? 9999));
@@ -397,6 +397,7 @@ function cardHTML(ev) {
     isTop(ev) ? `<span class="pill top">★ Top-Tipp</span>` : "",
     `<span class="pill cat">${catIcon(k, "sm")}${esc(ev.category_label)}</span>`,
     isNew(ev) ? `<span class="pill new">NEU</span>` : "",
+    memoryPills(ev),
     ev.is_service ? `<span class="pill warn">Firma/Werbung</span>` : "",
     `<span class="pill src">${ev.source === "kleinanzeigen" ? "Privat · Kleinanzeigen" : ev.manual ? "Eigener Eintrag"
       : ev.source === "Kieler Nachrichten" ? "Kieler Nachrichten"
@@ -424,13 +425,7 @@ function cardHTML(ev) {
 
 function renderList(list) {
   const el = $("#list");
-  if (!list.length && S.view === "fav") {
-    el.innerHTML = `<div class="empty"><h2>Noch nichts gemerkt</h2>
-      <p>Tippe bei einer Anzeige auf „Merken“ – dann steht sie hier, egal an welchem Tag sie ist.</p>
-      <button class="btn primary" type="button" id="favBack">Zu allen Terminen</button></div>`;
-    $("#favBack").addEventListener("click", () => { S.view = "list"; store.set("view", "list"); render(); });
-    return;
-  }
+  if (S.view === "fav") { renderFavView(); return; }
   if (!list.length) {
     const noData = !S.events.length;
     el.innerHTML = `<div class="empty">
@@ -443,6 +438,10 @@ function renderList(list) {
     return;
   }
   if (S.filters.sort !== "date") { el.innerHTML = list.map(cardHTML).join(""); return; }
+  el.innerHTML = groupedListHTML(list, true);
+}
+
+function groupedListHTML(list, overview) {
   const groups = new Map();
   for (const ev of list) {
     const key = ev.start_date && ev.start_date < S.today ? S.today : (ev.start_date || "");
@@ -451,7 +450,7 @@ function renderList(list) {
   }
   let html = "";
   const days = [...groups.keys()].filter(Boolean);
-  if (days.length >= 2 && days.length <= 4) {
+  if (overview && days.length >= 2 && days.length <= 4) {
     html += `<nav class="day-overview" aria-label="Tage">` + days.map((d) => `
       <a class="day-tile" href="#tag-${d}">
         <span class="dt-day">${esc(parseISO(d).toLocaleDateString("de-DE", { weekday: "long" }))}</span>
@@ -465,7 +464,7 @@ function renderList(list) {
       : `<span class="day-tag muted">Ohne erkanntes Datum</span><span class="day-rel">Datum steht evtl. im Text</span>`;
     html += `<div class="day-head" id="tag-${day || "ohne-datum"}">${head}<span class="day-count">${evs.length}</span></div>` + evs.map(cardHTML).join("");
   }
-  el.innerHTML = html;
+  return html;
 }
 
 function renderCats() {
@@ -512,7 +511,7 @@ function render() {
   store.set(FILTER_KEY, Object.fromEntries(KEEP_FILTERS.map((k) => [k, S.filters[k]])));
   const list = filtered();
   const undated = list.filter((e) => !e.start_date).length;
-  const nFav = S.events.filter((e) => e.favorite && !e.hidden).length;
+  const nFav = S.events.filter((e) => e.favorite && !e.hidden && !isPast(e)).length;
   $("#favCount").textContent = nFav ? nFav : "";
   $("#count").textContent = S.view === "fav"
     ? `${nFav} gemerkte ${nFav === 1 ? "Anzeige" : "Anzeigen"}`
@@ -521,6 +520,7 @@ function render() {
   syncControls();
   renderCats();
   renderActiveFilters();
+  renderMemoryHints();
   renderList(list);
   applyView();
   if (S.map) renderMap(list);
@@ -622,6 +622,7 @@ function openDetail(id) {
       <button class="btn ghost" type="button" data-dact="hide">${icon(ev.hidden ? "eye" : "eyeoff")} ${ev.hidden ? "Wieder anzeigen" : "Ausblenden"}</button>
       ${ev.manual ? `<button class="btn danger" type="button" data-dact="delete">Termin löschen</button>` : ""}
     </div>
+    ${visitBoxHTML(ev)}
     <label class="field"><span class="field-label">Eigene Notiz</span>
       <textarea id="noteField" rows="2" placeholder="z.B. Werkzeug anschauen, Bargeld mitnehmen">${esc(ev.note || "")}</textarea></label>
     <p class="form-error" id="detailError" hidden></p>`;
@@ -631,13 +632,360 @@ function openDetail(id) {
   $("#noteField").addEventListener("change", (e) => setState(ev, { note: e.target.value }, false));
 }
 
+function visitBoxHTML(ev) {
+  const m = memoryFor(ev);
+  const v = m.visit;
+  const isY = yearly().some((y) => y.id === ev.id);
+  return `<div class="visit-box">
+    <div class="visit-row">
+      <button class="btn ${v ? "primary" : "ghost"}" type="button" data-dact="visited">${v ? "✓ Besucht" : "Schon besucht?"}</button>
+      <button class="btn ${isY ? "primary" : "ghost"}" type="button" data-dact="yearly">🔁 ${isY ? "Jährlich vorgemerkt" : "Jedes Jahr erinnern"}</button>
+    </div>
+    ${v ? `<div class="stars" role="group" aria-label="Wie war es?"><span class="hint">Wie war es?</span>${[1, 2, 3, 4, 5].map((n) =>
+      `<button type="button" data-dact="rate" data-r="${n}" aria-pressed="${n <= (v.rating || 0)}" aria-label="${n} Sterne">★</button>`).join("")}</div>` : ""}
+    ${m.earlier ? `<p class="hint">Du warst am ${esc(parseISO(m.earlier.start_date).toLocaleDateString("de-DE"))} schon dort${m.earlier.rating ? ` – Bewertung ${stars(m.earlier.rating)}` : ""}.</p>` : ""}
+    ${m.yearly && m.yearly.id !== ev.id ? `<p class="hint">🔁 Diesen Markt hast du jährlich vorgemerkt (zuletzt ${esc(parseISO(m.yearly.start_date).toLocaleDateString("de-DE"))}).</p>` : ""}
+  </div>`;
+}
+
 async function setState(ev, patch, rerender = true) {
   try {
     await api(`/api/events/${encodeURIComponent(ev.id)}/state`, { method: "PATCH", body: JSON.stringify(patch) });
     Object.assign(ev, patch);
+    if (patch.favorite !== undefined) { syncFavSnaps(); pushReminder(); }
     if (rerender) render();
     if (patch.note !== undefined) toast("Notiz gespeichert");
   } catch (e) { toast(e.message); }
+}
+
+
+/* ---------- Mein Flohmarkt-Tagebuch: besucht, jährliche Märkte, abgelaufene Merkliste ----------
+   Alles wird nur auf diesem Gerät gespeichert (wie Favoriten und Notizen). */
+const snapOf = (ev) => ({
+  id: ev.id, title: ev.title, start_date: ev.start_date, end_date: ev.end_date, time_text: ev.time_text || "",
+  address: ev.address || "", location: ev.location || "", lat: ev.lat ?? null, lon: ev.lon ?? null,
+  category: ev.category, category_label: ev.category_label, url: ev.url || "", source: ev.source,
+});
+const visits = () => store.get("visits", {});   // id -> { at, rating, ...snap }
+const yearly = () => store.get("yearly", []);   // [{ ...snap, rating }]
+const favSnaps = () => store.get("favSnap", {}); // gemerkte Termine bleiben erhalten, auch wenn die Anzeige verschwindet
+const endOf = (ev) => ev.end_date || ev.start_date;
+const isPast = (ev) => !!ev.start_date && endOf(ev) < S.today;
+const stars = (n) => "★".repeat(n) + "☆".repeat(5 - n);
+
+// Wörter, die nichts über den konkreten Markt sagen (für "ist das derselbe Markt wie letztes Jahr?")
+const MARKET_STOP = new Set(("flohmarkt flohmärkte flohmaerkte dorfflohmarkt straßenflohmarkt strassenflohmarkt hofflohmarkt " +
+  "garagenflohmarkt hausflohmarkt trödelmarkt troedelmarkt kinderflohmarkt kinderbasar basar großer grosser große grosse " +
+  "kleiner kleine herbstflohmarkt frühjahrsflohmarkt sommerflohmarkt herbst frühjahr sommer samstag sonntag heute morgen " +
+  "und mit der die das den dem von vom bis zum zur beim für auf januar februar märz april juni juli august september " +
+  "oktober november dezember haushaltsauflösung wohnungsauflösung nachlass verkauf alles muss raus").split(" "));
+function marketWords(title) {
+  return new Set(String(title || "").toLowerCase().replace(/[^a-zäöüß]+/g, " ").split(" ")
+    .filter((w) => w.length >= 4 && !MARKET_STOP.has(w)));
+}
+function sameMarket(a, b) {
+  const wa = marketWords(a.title), wb = marketWords(b.title);
+  const shared = [...wa].filter((w) => wb.has(w)).length;
+  if (a.lat != null && b.lat != null) {
+    const d = haversine(a.lat, a.lon, b.lat, b.lon);
+    return d <= 0.3 || (d <= 3 && shared >= 1);
+  }
+  return shared >= 2 || (shared >= 1 && shared / Math.max(1, Math.min(wa.size, wb.size)) >= 0.5);
+}
+
+/* Merkt sich zu jedem Termin: selbst besucht? jährlich vorgemerkt? früher schon dort gewesen? */
+function memoryFor(ev) {
+  const v = visits()[ev.id];
+  const rec = yearly().find((y) => y.id === ev.id || (y.start_date !== ev.start_date && sameMarket(y, ev)));
+  let earlier = null;
+  if (!v && ev.start_date) {
+    for (const old of Object.values(visits())) {
+      if (old.id !== ev.id && old.start_date && dayDiff(old.start_date, ev.start_date) > 150 && sameMarket(old, ev)) { earlier = old; break; }
+    }
+  }
+  return { visit: v || null, yearly: rec || null, earlier };
+}
+
+function memoryPills(ev) {
+  const m = ev._mem || memoryFor(ev);
+  return [
+    m.visit ? `<span class="pill visited">✓ Besucht${m.visit.rating ? ` <span class="stars-sm">${stars(m.visit.rating)}</span>` : ""}</span>` : "",
+    !m.visit && m.earlier ? `<span class="pill visited">Schon mal dort${m.earlier.rating ? ` <span class="stars-sm">${stars(m.earlier.rating)}</span>` : ""}</span>` : "",
+    m.yearly && m.yearly.id !== ev.id ? `<span class="pill yearly">🔁 Jährlich vorgemerkt</span>` : "",
+  ].join("");
+}
+
+function setVisit(ev, patch) {
+  const all = visits();
+  if (patch === null) delete all[ev.id];
+  else all[ev.id] = { ...(all[ev.id] || { at: Date.now() }), ...snapOf(ev), ...patch };
+  store.set("visits", all);
+  const ys = yearly(); // Bewertung auch beim jährlichen Eintrag aktualisieren
+  const y = ys.find((r) => r.id === ev.id);
+  if (y && patch && patch.rating != null) { y.rating = patch.rating; store.set("yearly", ys); }
+}
+
+function toggleYearly(ev) {
+  let ys = yearly();
+  if (ys.some((y) => y.id === ev.id)) ys = ys.filter((y) => y.id !== ev.id);
+  else ys = [...ys.filter((y) => !sameMarket(y, ev)), { ...snapOf(ev), rating: visits()[ev.id]?.rating || 0 }];
+  store.set("yearly", ys);
+  return ys.some((y) => y.id === ev.id);
+}
+
+/* Nächster Termin eines jährlichen Marktes: gefundene Anzeige oder Schätzung "gleiche Zeit wie letztes Mal" */
+function yearlyStatus(rec) {
+  const next = S.events.filter((e) => e.id !== rec.id && e.start_date && e.start_date >= S.today && e.start_date > rec.start_date && sameMarket(rec, e))
+    .sort((a, b) => a.start_date.localeCompare(b.start_date))[0];
+  if (next) return { found: next };
+  if (!rec.start_date) return {};
+  const last = parseISO(rec.start_date), today = parseISO(S.today);
+  let guess = new Date(today.getFullYear(), last.getMonth(), last.getDate());
+  if (toISO(guess) < S.today) guess = new Date(today.getFullYear() + 1, last.getMonth(), last.getDate());
+  if (toISO(guess) <= rec.start_date) guess = new Date(last.getFullYear() + 1, last.getMonth(), last.getDate());
+  return { guess: toISO(guess), soon: dayDiff(S.today, toISO(guess)) <= 30 };
+}
+
+function syncFavSnaps() {
+  const snaps = favSnaps();
+  let changed = false;
+  for (const ev of S.events) {
+    if (ev.favorite) { const n = snapOf(ev); if (JSON.stringify(snaps[ev.id]) !== JSON.stringify(n)) { snaps[ev.id] = n; changed = true; } }
+    else if (snaps[ev.id]) { delete snaps[ev.id]; changed = true; }
+  }
+  if (changed) store.set("favSnap", snaps);
+  for (const ev of S.events) ev._mem = memoryFor(ev);
+}
+
+/* Gemerkte Termine, die vorbei sind (auch wenn die Anzeige inzwischen gelöscht wurde) */
+function pastFavorites() {
+  const byId = new Map(S.events.map((e) => [e.id, e]));
+  return Object.values(favSnaps()).map((sn) => byId.get(sn.id) || sn).filter(isPast)
+    .sort((a, b) => (b.start_date || "").localeCompare(a.start_date || ""));
+}
+
+async function removeFavorite(id) {
+  const ev = S.events.find((e) => e.id === id);
+  if (ev) await setState(ev, { favorite: false }, false);
+  else {
+    try { await api(`/api/events/${encodeURIComponent(id)}/state`, { method: "PATCH", body: JSON.stringify({ favorite: false }) }); } catch { /* Anzeige gibt es nicht mehr */ }
+  }
+  const snaps = favSnaps(); delete snaps[id]; store.set("favSnap", snaps);
+}
+
+/* Hinweise über der Liste: vorbei gemerkte Termine, jährliche Märkte mit neuem Termin */
+function renderMemoryHints() {
+  const el = $("#memoryHints");
+  if (S.view === "fav") { el.innerHTML = ""; return; }
+  const hints = [];
+  const past = pastFavorites();
+  if (past.length) {
+    hints.push(`<div class="notice"><span>📌 ${past.length === 1 ? "Ein gemerkter Termin ist" : `${past.length} gemerkte Termine sind`} vorbei. Warst du da?</span>
+      <button class="btn small" type="button" data-goto-fav>Bewerten &amp; aufräumen</button></div>`);
+  }
+  const seen = store.get("yearlySeen", {});
+  for (const rec of yearly()) {
+    const st = yearlyStatus(rec);
+    if (st.found && seen[st.found.id] !== 1) {
+      hints.push(`<div class="notice gold"><span>🔁 <strong>${esc(rec.title)}</strong> ist wieder da: ${esc(fmtDay(st.found.start_date))}</span>
+        <button class="btn small" type="button" data-open="${esc(st.found.id)}" data-seen="${esc(st.found.id)}">Ansehen</button></div>`);
+    }
+  }
+  el.innerHTML = hints.join("");
+}
+
+/* ---------- Ansicht „Gemerkt“ ---------- */
+function renderFavView() {
+  const el = $("#list");
+  const favs = S.events.filter((e) => e.favorite && !e.hidden && !isPast(e));
+  const past = pastFavorites();
+  const ys = yearly();
+  const vs = Object.values(visits()).sort((a, b) => (b.start_date || "").localeCompare(a.start_date || ""));
+  let html = "";
+
+  const tourDays = [...new Set(favs.filter((e) => e.start_date).map((e) => (e.start_date < S.today ? S.today : e.start_date)))].sort();
+  if (tourDays.length) {
+    html += `<section class="fav-sec"><h2>🚗 Tour planen</h2>
+      <p class="hint">Die App sortiert deine gemerkten Termine eines Tages in die kürzeste Reihenfolge und öffnet die Route.</p>
+      <div class="tour-days">${tourDays.map((d) => {
+        const n = favs.filter((e) => onDay(e, d)).length;
+        return `<button class="btn ghost" type="button" data-tour="${d}">${esc(fmtDay(d))} <span class="rn">${n} ${n === 1 ? "Stopp" : "Stopps"}</span></button>`;
+      }).join("")}</div></section>`;
+  }
+  if (past.length) {
+    html += `<section class="fav-sec past"><h2>Vorbei <span class="day-count">${past.length}</span></h2>
+      <p class="hint">Warst du da? Dann „Besucht“ antippen und Sterne vergeben – nächstes Jahr zeigt die App, wie es war.</p>
+      ${past.map((e) => pastRowHTML(e)).join("")}
+      <button class="btn ghost" type="button" data-past-clear>Alle vorbeien Termine entfernen</button></section>`;
+  }
+  if (favs.length) html += `<h2 class="fav-title">Demnächst</h2>` + groupedListHTML(favs, false);
+  else if (!past.length) {
+    html += `<div class="empty"><h2>Noch nichts gemerkt</h2>
+      <p>Tippe bei einer Anzeige auf „Merken“ – dann steht sie hier, egal an welchem Tag sie ist.</p>
+      <button class="btn primary" type="button" id="favBack">Zu allen Terminen</button></div>`;
+  }
+  if (ys.length) {
+    html += `<section class="fav-sec"><h2>🔁 Jährliche Märkte</h2>
+      <p class="hint">Sobald eine Anzeige für den nächsten Termin auftaucht, erscheint oben in der Liste ein Hinweis.</p>
+      ${ys.map((rec) => {
+        const st = yearlyStatus(rec);
+        const status = st.found ? `<strong class="ok">Neuer Termin: ${esc(fmtDay(st.found.start_date))}</strong>`
+          : st.guess ? `voraussichtlich um den ${esc(parseISO(st.guess).toLocaleDateString("de-DE", { day: "numeric", month: "long" }))}${st.soon ? " – noch keine Anzeige gefunden" : ""}` : "";
+        return `<div class="mem-row">
+          <div class="mem-main"><strong>${esc(rec.title)}</strong>
+            <small>Zuletzt ${rec.start_date ? esc(parseISO(rec.start_date).toLocaleDateString("de-DE")) : "?"}${rec.rating ? ` · ${stars(rec.rating)}` : ""}${rec.location || rec.address ? ` · ${esc(rec.address || rec.location)}` : ""}</small>
+            <small>${status}</small></div>
+          <div class="mem-acts">${st.found ? `<button class="btn small" type="button" data-open="${esc(st.found.id)}">Ansehen</button>` : ""}
+            <button class="link-btn" type="button" data-yearly-remove="${esc(rec.id)}">Entfernen</button></div>
+        </div>`;
+      }).join("")}</section>`;
+  }
+  if (vs.length) {
+    html += `<details class="fav-sec"><summary><h2>✓ Besuchte Märkte <span class="day-count">${vs.length}</span></h2></summary>
+      ${vs.map((v) => `<div class="mem-row"><div class="mem-main"><strong>${esc(v.title)}</strong>
+        <small>${v.start_date ? esc(parseISO(v.start_date).toLocaleDateString("de-DE")) : ""}${v.rating ? ` · ${stars(v.rating)}` : " · noch nicht bewertet"}</small></div></div>`).join("")}
+    </details>`;
+  }
+  el.innerHTML = html;
+  $("#favBack")?.addEventListener("click", () => { S.view = "list"; store.set("view", "list"); render(); });
+}
+
+function pastRowHTML(e) {
+  const v = visits()[e.id];
+  return `<div class="mem-row" data-past="${esc(e.id)}">
+    <div class="mem-main"><strong>${esc(e.title)}</strong>
+      <small>${esc(fmtDay(e.start_date))}${e.address || e.location ? ` · ${esc(e.address || e.location)}` : ""}</small>
+      ${v ? `<div class="stars" role="group" aria-label="Bewertung">${[1, 2, 3, 4, 5].map((n) =>
+        `<button type="button" data-past-rate="${n}" aria-pressed="${n <= (v.rating || 0)}" aria-label="${n} Sterne">★</button>`).join("")}</div>` : ""}
+    </div>
+    <div class="mem-acts">
+      <button class="btn small ${v ? "on" : ""}" type="button" data-past-visited>${v ? "✓ Besucht" : "Besucht"}</button>
+      <button class="link-btn" type="button" data-past-remove>Entfernen</button>
+    </div>
+  </div>`;
+}
+
+const onDay = (e, d) => e.start_date && e.start_date <= d && endOf(e) >= d;
+
+/* ---------- Wochenend-Tour ---------- */
+const TOUR = { day: null, skip: new Set(), back: true };
+
+function tourStops(day) {
+  return S.events.filter((e) => e.favorite && !e.hidden && onDay(e, day));
+}
+
+/* Kürzeste Reihenfolge (bis 8 Stopps exakt, sonst "immer zum nächsten") */
+function bestOrder(stops, home, back) {
+  const d = (a, b) => haversine(a.lat, a.lon, b.lat, b.lon);
+  const cost = (order) => {
+    let c = 0, prev = home;
+    for (const s of order) { if (prev) c += d(prev, s); prev = s; }
+    if (back && home && order.length) c += d(order[order.length - 1], home);
+    return c;
+  };
+  if (stops.length <= 8) {
+    let best = stops, bestC = Infinity;
+    const perm = (rest, acc) => {
+      if (!rest.length) { const c = cost(acc); if (c < bestC) { bestC = c; best = acc; } return; }
+      for (let i = 0; i < rest.length; i++) perm([...rest.slice(0, i), ...rest.slice(i + 1)], [...acc, rest[i]]);
+    };
+    perm(stops, []);
+    return { order: best, km: bestC };
+  }
+  const left = [...stops], order = [];
+  let cur = home || left[0];
+  while (left.length) {
+    left.sort((a, b) => d(cur, a) - d(cur, b));
+    cur = left.shift(); order.push(cur);
+  }
+  return { order, km: cost(order) };
+}
+
+function openTour(day) {
+  if (TOUR.day !== day) { TOUR.day = day; TOUR.skip = new Set(); }
+  const all = tourStops(day);
+  const withPos = all.filter((e) => e.lat != null && !TOUR.skip.has(e.id));
+  const noPos = all.filter((e) => e.lat == null);
+  const home = S.settings.home_lat != null ? { lat: S.settings.home_lat, lon: S.settings.home_lon } : null;
+  const { order, km } = bestOrder(withPos, home, TOUR.back && !!home);
+  const road = Math.round(km * 1.3); // Luftlinie -> ungefähre Fahrstrecke
+  const maxStops = 9; // mehr Zwischenziele nimmt Google Maps nicht
+  const used = order.slice(0, maxStops + (TOUR.back && home ? 0 : 1));
+  const pt = (e) => `${e.lat},${e.lon}`;
+  let url = "";
+  if (used.length) {
+    const dest = TOUR.back && home ? `${home.lat},${home.lon}` : pt(used[used.length - 1]);
+    const wps = [...new Set((TOUR.back && home ? used : used.slice(0, -1)).map(pt))].filter((w) => w !== dest); // gleiche Adresse nur einmal
+    url = `https://www.google.com/maps/dir/?api=1${home ? `&origin=${home.lat},${home.lon}` : ""}&destination=${dest}` +
+      `${wps.length ? `&waypoints=${encodeURIComponent(wps.join("|"))}` : ""}&travelmode=driving`;
+  }
+  let prev = home;
+  $("#tourBody").innerHTML = `
+    <div class="sheet-head"><h2>Tour am ${esc(fmtDay(day))}</h2>
+      <button class="icon-btn" type="button" data-close aria-label="Schließen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+    ${order.length ? `<p class="tour-sum"><strong>${order.length} ${order.length === 1 ? "Stopp" : "Stopps"}</strong> · ca. ${road} km Fahrstrecke${TOUR.back && home ? " (mit Rückfahrt)" : ""}</p>` : ""}
+    <ol class="tour-list">
+      ${home ? `<li class="tour-home">🏠 Start: ${esc(S.settings.home_query || "Zuhause")}</li>` : ""}
+      ${order.map((e) => {
+        const leg = prev ? Math.round(haversine(prev.lat, prev.lon, e.lat, e.lon) * 1.3) : null; prev = e;
+        return `<li class="tour-stop" style="--cat: var(--c-${catKey(e.category)})">
+          <label class="switch"><input type="checkbox" data-tour-skip="${esc(e.id)}" checked>
+          <span><strong>${esc(e.title)}</strong><small>${esc(e.time_text || "Uhrzeit siehe Anzeige")} · ${esc(e.address || e.location || "")}${leg != null ? ` · ca. ${leg} km` : ""}</small></span></label></li>`;
+      }).join("")}
+      ${TOUR.back && home && order.length ? `<li class="tour-home">🏠 Zurück nach Hause</li>` : ""}
+    </ol>
+    ${all.filter((e) => TOUR.skip.has(e.id)).map((e) => `<label class="switch tour-off"><input type="checkbox" data-tour-skip="${esc(e.id)}"><span>${esc(e.title)} <small>(nicht dabei)</small></span></label>`).join("")}
+    ${noPos.length ? `<p class="hint">Ohne genaue Adresse, deshalb nicht in der Route: ${noPos.map((e) => esc(e.title)).join(", ")}</p>` : ""}
+    ${order.length > maxStops ? `<p class="hint">Google Maps nimmt höchstens ${maxStops} Zwischenziele – die ersten ${maxStops} sind in der Route.</p>` : ""}
+    ${home ? `<label class="switch"><input type="checkbox" id="tourBack" ${TOUR.back ? "checked" : ""}><span>Am Ende zurück nach Hause</span></label>`
+      : `<p class="hint">Tipp: Wohnort in den Einstellungen eintragen, dann startet die Tour zu Hause.</p>`}
+    <p class="hint">Uhrzeiten bitte selbst im Blick behalten – manche Märkte beginnen erst mittags.</p>
+    <div class="sheet-actions">
+      ${url ? `<a class="btn primary" href="${esc(url)}" target="_blank" rel="noopener">${icon("route")} Route in Google Maps öffnen</a>`
+        : `<p class="hint">Mindestens einen Termin auswählen.</p>`}
+    </div>`;
+  const dlg = $("#tourDialog");
+  if (!dlg.open) dlg.showModal();
+}
+
+/* ---------- Freitags-Erinnerung (nur Android-App) ---------- */
+const APK_URL = "https://github.com/anonym239/Kleinanzeigen/releases/latest/download/Flohmarkt-Finder.apk";
+const appHas = (fn) => !!(window.AndroidApp && typeof window.AndroidApp[fn] === "function");
+
+function pushReminder() {
+  if (!appHas("setReminder")) return;
+  const s = S.settings;
+  const favIds = S.events.filter((e) => e.favorite).map((e) => e.id);
+  try {
+    window.AndroidApp.setReminder(store.get("friday", true), s.home_lat ?? 0, s.home_lon ?? 0, s.home_lat != null ? radiusValue() : 0,
+      JSON.stringify(favIds));
+  } catch { /* ältere App */ }
+}
+
+function checkAppUpdate() {
+  const el = $("#appUpdate");
+  const old = window.FLOHMARKT_APP && !appHas("setReminder");
+  const snoozed = Date.now() - store.get("updateSnooze", 0) < 3 * 86400000;
+  el.hidden = !old || snoozed;
+  if (el.hidden) return;
+  el.innerHTML = `<span>📲 <strong>Neue App-Version:</strong> Freitags-Erinnerung fürs Wochenende. Einfach herunterladen und über die alte App installieren – alles Gemerkte bleibt.</span>
+    <span class="notice-acts"><button class="btn small" type="button" id="updateNow">Jetzt aktualisieren</button>
+    <button class="link-btn" type="button" id="updateLater">Später</button></span>`;
+  $("#updateNow").addEventListener("click", () => { if (appHas("openUrl")) window.AndroidApp.openUrl(APK_URL); else openExternal(APK_URL); });
+  $("#updateLater").addEventListener("click", () => { store.set("updateSnooze", Date.now()); el.hidden = true; });
+}
+
+function syncReminderSettings() {
+  const inApp = !!window.FLOHMARKT_APP, ok = appHas("setReminder");
+  $("#setFriday").checked = store.get("friday", true);
+  $("#setFriday").disabled = !ok;
+  $("#testFriday").disabled = !ok;
+  const status = ok && appHas("reminderStatus") ? window.AndroidApp.reminderStatus() : "";
+  $("#fridayHint").textContent = !inApp
+    ? "Die Freitags-Erinnerung gibt es in der Android-App."
+    : !ok ? "Dafür bitte die neue App-Version installieren (Hinweis oben in der Liste)."
+    : status === "blocked" ? "Benachrichtigungen sind für die App ausgeschaltet: Handy-Einstellungen → Apps → Flohmärkte → Benachrichtigungen erlauben."
+    : "Kommt jeden Freitag gegen 16 Uhr: wie viele Flohmärkte am Wochenende in deinem Umkreis sind, mit den Top-Tipps.";
 }
 
 const APP = window.AndroidApp || null; // in der Android-App vorhanden
@@ -714,6 +1062,7 @@ async function openSettings() {
   $("#setUrls").value = (s.extra_urls || []).join("\n");
   $("#icsUrl").value = new URL("api/favorites.ics", location.href).href;
   $("#settingsError").hidden = true;
+  syncReminderSettings();
   $("#settings").showModal();
   $("#sourceError").hidden = true;
   if (STATIC) renderSourceList();
@@ -903,6 +1252,9 @@ async function submitAdd(e) {
 async function loadEvents() {
   const data = await api("/api/events");
   S.events = data.events; S.categories = data.categories; S.today = data.today;
+  syncFavSnaps();
+  pushReminder();
+  checkAppUpdate();
   renderSources();
   render();
 }
@@ -939,7 +1291,7 @@ function bind() {
     render();
   });
   $("#radius").addEventListener("input", (e) => { $("#radiusOut").textContent = `${e.target.value} km`; });
-  $("#radius").addEventListener("change", (e) => { S.filters.radius = Number(e.target.value); render(); });
+  $("#radius").addEventListener("change", (e) => { S.filters.radius = Number(e.target.value); render(); pushReminder(); });
   for (const k of ["weekendOnly", "favOnly", "undated", "noLocation", "services", "showHidden"]) {
     $("#" + k).addEventListener("change", (e) => { S.filters[k] = e.target.checked; render(); });
   }
@@ -955,7 +1307,23 @@ function bind() {
   $("#viewFav").addEventListener("click", () => { S.view = "fav"; store.set("view", "fav"); render(); window.scrollTo({ top: 0 }); });
   $("#viewMap").addEventListener("click", () => { S.view = "map"; store.set("view", "map"); applyView(); if (S.map) renderMap(filtered()); });
 
-  $("#list").addEventListener("click", (e) => {
+  $("#list").addEventListener("click", async (e) => {
+    const t = e.target.closest("[data-tour],[data-open],[data-past-visited],[data-past-remove],[data-past-rate],[data-past-clear],[data-yearly-remove]");
+    if (t) {
+      const row = t.closest("[data-past]");
+      const past = row ? pastFavorites().find((x) => x.id === row.dataset.past) : null;
+      if (t.dataset.tour) openTour(t.dataset.tour);
+      else if (t.dataset.open) openDetail(t.dataset.open);
+      else if (t.hasAttribute("data-past-visited") && past) { setVisit(past, visits()[past.id] ? null : {}); render(); }
+      else if (t.dataset.pastRate && past) { setVisit(past, { rating: Number(t.dataset.pastRate) }); render(); }
+      else if (t.hasAttribute("data-past-remove") && past) { await removeFavorite(past.id); syncFavSnaps(); render(); toast("Aus der Merkliste entfernt"); }
+      else if (t.hasAttribute("data-past-clear")) {
+        if (t.dataset.confirm !== "1") { t.dataset.confirm = "1"; t.textContent = "Wirklich alle entfernen? Nochmal tippen"; return; }
+        for (const p of pastFavorites()) await removeFavorite(p.id);
+        syncFavSnaps(); render(); toast("Vorbeie Termine entfernt – Besuche und Bewertungen bleiben gespeichert");
+      } else if (t.dataset.yearlyRemove) { store.set("yearly", yearly().filter((y) => y.id !== t.dataset.yearlyRemove)); syncFavSnaps(); render(); }
+      return;
+    }
     const card = e.target.closest(".card"); if (!card) return;
     const ev = S.events.find((x) => x.id === card.dataset.id);
     const act = e.target.closest("[data-act]");
@@ -974,6 +1342,26 @@ function bind() {
     if (e.key === "Enter" && e.target.classList.contains("card")) openDetail(e.target.dataset.id);
   });
   $("#map").addEventListener("click", (e) => { const b = e.target.closest("[data-open]"); if (b) openDetail(b.dataset.open); });
+  $("#memoryHints").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-goto-fav],[data-open]"); if (!b) return;
+    if (b.dataset.seen) { const seen = store.get("yearlySeen", {}); seen[b.dataset.seen] = 1; store.set("yearlySeen", seen); }
+    if (b.hasAttribute("data-goto-fav")) { S.view = "fav"; store.set("view", "fav"); render(); window.scrollTo({ top: 0 }); }
+    else { openDetail(b.dataset.open); renderMemoryHints(); }
+  });
+  $("#tourDialog").addEventListener("click", (e) => {
+    if (e.target === $("#tourDialog") || e.target.closest("[data-close]")) $("#tourDialog").close();
+  });
+  $("#tourDialog").addEventListener("change", (e) => {
+    const id = e.target.dataset.tourSkip;
+    if (id) { if (e.target.checked) TOUR.skip.delete(id); else TOUR.skip.add(id); }
+    if (e.target.id === "tourBack") TOUR.back = e.target.checked;
+    openTour(TOUR.day);
+  });
+  $("#setFriday").addEventListener("change", (e) => { store.set("friday", e.target.checked); pushReminder(); syncReminderSettings(); });
+  $("#testFriday").addEventListener("click", () => {
+    pushReminder();
+    if (appHas("testReminder")) { window.AndroidApp.testReminder(); toast("Probe-Nachricht kommt gleich (Termine werden geladen) …"); }
+  });
 
   $("#detail").addEventListener("click", async (e) => {
     if (e.target === $("#detail") || e.target.closest("[data-close]")) { $("#detail").close(); return; }
@@ -981,6 +1369,18 @@ function bind() {
     const ev = S.events.find((x) => x.id === $("#detailBody").dataset.id);
     if (b.dataset.dact === "fav") { await setState(ev, { favorite: !ev.favorite }); openDetail(ev.id); }
     if (b.dataset.dact === "hide") { await setState(ev, { hidden: !ev.hidden }); $("#detail").close(); }
+    if (b.dataset.dact === "visited") {
+      const v = visits()[ev.id];
+      setVisit(ev, v ? null : {});
+      if (!v) toast("Schön! Wie war es? Sterne antippen.");
+      syncFavSnaps(); openDetail(ev.id); render();
+    }
+    if (b.dataset.dact === "rate") { setVisit(ev, { rating: Number(b.dataset.r) }); syncFavSnaps(); openDetail(ev.id); render(); }
+    if (b.dataset.dact === "yearly") {
+      const on = toggleYearly(ev);
+      toast(on ? "Vorgemerkt – nächstes Jahr zeigt die App einen Hinweis, sobald der Termin da ist." : "Nicht mehr jährlich vorgemerkt");
+      syncFavSnaps(); openDetail(ev.id); render();
+    }
     if (b.dataset.dact === "share") shareEvent(ev);
     if (b.dataset.dact === "ics") downloadIcs(ev);
     if (b.dataset.dact === "delete") {
