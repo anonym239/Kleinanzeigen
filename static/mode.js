@@ -1,2 +1,2 @@
 window.FLOHMARKT_STATIC = true;
-window.FLOHMARKT_BUILD = "8a45c09825ff";
+window.FLOHMARKT_BUILD = "0417ee205581";

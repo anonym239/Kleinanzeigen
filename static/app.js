@@ -1060,25 +1060,41 @@ async function loadWeather() {
   const s = S.settings;
   if (s.home_lat == null) return;
   const key = `${(+s.home_lat).toFixed(2)},${(+s.home_lon).toFixed(2)}`;
-  const c = store.get("wx", null);
+  const c = store.get("wx2", null);
   if (c && c.key === key && Date.now() - c.at < 3 * 3600e3) { WX.days = c.days; return; }
   try {
     const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${s.home_lat}&longitude=${s.home_lon}` +
-      "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=Europe%2FBerlin&forecast_days=16");
+      "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum," +
+      "sunshine_duration,daylight_duration&timezone=Europe%2FBerlin&forecast_days=16");
     const d = (await r.json()).daily;
     const days = {};
-    d.time.forEach((t, i) => { days[t] = { code: d.weather_code[i], max: d.temperature_2m_max[i], min: d.temperature_2m_min[i], rain: d.precipitation_probability_max[i] }; });
+    d.time.forEach((t, i) => {
+      days[t] = { code: fairCode(d.weather_code[i], d.precipitation_probability_max?.[i], d.precipitation_sum?.[i],
+        d.sunshine_duration?.[i], d.daylight_duration?.[i]), max: d.temperature_2m_max[i], min: d.temperature_2m_min[i],
+        rain: d.precipitation_probability_max?.[i] ?? null };
+    });
     WX.days = days;
-    store.set("wx", { key, at: Date.now(), days });
+    store.set("wx2", { key, at: Date.now(), days });
     render();
   } catch { /* ohne Wetter weiter */ }
+}
+
+/* Der Tagescode nennt schon einen kurzen Schauer "Regen". Ist Regen unwahrscheinlich, lieber nach
+   Sonnenstunden zeigen (sonnig / teils bewölkt / bedeckt) – so wie es ein Mensch beschreiben würde. */
+function fairCode(code, prob, sum, sun, daylight) {
+  const wet = (code >= 51 && code <= 67) || (code >= 80 && code <= 82);
+  const ratio = sun != null && daylight ? sun / daylight : null;
+  const bySun = ratio == null ? 3 : ratio > 0.7 ? 0 : ratio > 0.45 ? 1 : ratio > 0.2 ? 2 : 3;
+  if (wet && ((prob != null && prob < 30) || (sum != null && sum < 0.5))) return bySun;
+  if (code <= 3 && ratio != null) return bySun;
+  return code;
 }
 
 function wxFor(day) { return WX.days?.[day] || null; }
 function wxHTML(day, long = false) {
   const w = wxFor(day); if (!w) return "";
   const [, emo, txt] = wmo(w.code);
-  return `<span class="wx" title="${esc(txt)}">${emo} ${Math.round(w.max)}°${long ? ` / ${Math.round(w.min)}° · ${esc(txt)}` : ""}${w.rain != null && (long || w.rain >= 30) ? ` · 💧${w.rain} %` : ""}</span>`;
+  return `<span class="wx" title="${esc(txt)} in ${esc(S.settings.home_query || "")}">${emo} ${Math.round(w.max)}° <span class="wx-min">${Math.round(w.min)}°</span>${long ? ` · ${esc(txt)}` : ""}${w.rain != null && (long || w.rain >= 30) ? ` · 💧${w.rain} %` : ""}</span>`;
 }
 function wxText(day) { // für das PDF (ohne Symbole)
   const w = wxFor(day); if (!w) return "";
