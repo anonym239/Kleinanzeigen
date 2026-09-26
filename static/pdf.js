@@ -37,6 +37,7 @@ function togglePick(id) {
 
 function renderPdfBar() {
   const bar = $("#pdfBar");
+  if (!bar) return;
   bar.hidden = !S.pdf;
   if (!S.pdf) return;
   const n = S.pdf.sel.size;
@@ -351,14 +352,14 @@ async function makePdf() {
 }
 
 function bindPdf() {
-  $("#pdfBtn").addEventListener("click", () => (S.pdf ? stopPdfMode() : startPdfMode()));
-  $("#pdfCancel").addEventListener("click", stopPdfMode);
-  $("#pdfAll").addEventListener("click", () => {
+  $("#pdfBtn")?.addEventListener("click", () => (S.pdf ? stopPdfMode() : startPdfMode()));
+  $("#pdfCancel")?.addEventListener("click", stopPdfMode);
+  $("#pdfAll")?.addEventListener("click", () => {
     const list = pdfVisibleList();
     S.pdf.sel = new Set(list.slice(0, PDF_MAX).map((e) => e.id));
     if (list.length > PDF_MAX) toast(`Höchstens ${PDF_MAX} Termine passen auf eine Seite.`);
     render();
   });
-  $("#pdfNone").addEventListener("click", () => { S.pdf.sel.clear(); render(); });
-  $("#pdfMake").addEventListener("click", makePdf);
+  $("#pdfNone")?.addEventListener("click", () => { S.pdf.sel.clear(); render(); });
+  $("#pdfMake")?.addEventListener("click", makePdf);
 }
